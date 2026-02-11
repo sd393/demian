@@ -215,11 +215,9 @@ export function useChat() {
         },
       }
 
-      let updatedMessages: Message[] = []
-      setMessages((prev) => {
-        updatedMessages = [...prev, uploadMessage]
-        return updatedMessages
-      })
+      const updatedMessages = [...messagesRef.current, uploadMessage]
+      messagesRef.current = updatedMessages
+      setMessages(updatedMessages)
 
       const controller = new AbortController()
       abortControllerRef.current = controller

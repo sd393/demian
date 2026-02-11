@@ -13,7 +13,7 @@ export function Hero() {
 
       <div className="mx-auto max-w-3xl text-center">
         <p className="mb-4 text-sm font-medium uppercase tracking-widest text-primary">
-          AI-Powered Presentation Coaching
+          AI-Powered Communication Coaching
         </p>
         <h1 className="text-balance text-5xl font-bold leading-tight tracking-tight text-foreground md:text-7xl">
           Rehearse with your

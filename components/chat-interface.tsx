@@ -3,6 +3,7 @@
 import React from "react"
 
 import { useState, useRef, useEffect, type FormEvent } from "react"
+import ReactMarkdown from "react-markdown"
 import { Send, Paperclip, FileVideo, FileAudio, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useChat } from "@/hooks/use-chat"
@@ -104,9 +105,15 @@ export function ChatInterface() {
                   </div>
                 )}
 
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {msg.content}
-                </p>
+                {msg.role === "assistant" ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {msg.content}
+                  </p>
+                )}
               </div>
             </div>
           ))}
@@ -131,11 +138,12 @@ export function ChatInterface() {
             messages[messages.length - 1].role === "assistant" &&
             messages[messages.length - 1].content === "" && (
               <div className="flex justify-start">
-                <div className="rounded-2xl rounded-bl-md border border-border/60 bg-card px-5 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0ms]" />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
+                <div className="rounded-2xl rounded-bl-md border border-border/60 bg-card px-5 py-3 text-card-foreground">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      Simulating...
+                    </span>
                   </div>
                 </div>
               </div>
@@ -147,7 +155,7 @@ export function ChatInterface() {
       <div className="flex-shrink-0 border-t border-border/50 bg-background/80 px-4 py-4 backdrop-blur-sm">
         <form
           onSubmit={handleSubmit}
-          className="mx-auto flex max-w-3xl items-end gap-3"
+          className="mx-auto flex max-w-3xl items-center gap-3"
         >
           {/* File upload */}
           <input
@@ -182,7 +190,7 @@ export function ChatInterface() {
               placeholder="Type your message..."
               rows={1}
               disabled={isBusy}
-              className="w-full resize-none rounded-lg border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              className="h-10 w-full resize-none rounded-lg border border-input bg-card px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
           </div>
 
