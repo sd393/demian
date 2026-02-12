@@ -116,7 +116,7 @@ export default function AccountPage() {
             <div>
               <p className="text-sm font-medium text-foreground">Free Plan</p>
               <p className="text-sm text-muted-foreground">
-                3 presentations per month
+                Unlimited presentations
               </p>
             </div>
             <div className="flex flex-col items-center gap-1">
