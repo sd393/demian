@@ -2,18 +2,27 @@
 
 import { useState } from "react"
 import { Menu, X } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
 
-const navLinks = [
+const baseLinks = [
   { label: "About", href: "#about" },
   { label: "Presentation", href: "#how-it-works" },
   { label: "Resume", href: "#" },
   { label: "Premium", href: "#" },
-  { label: "Login", href: "/login" },
-  { label: "Account", href: "#" },
 ]
 
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { user, loading } = useAuth()
+
+  const navLinks = [
+    ...baseLinks,
+    ...(loading
+      ? []
+      : user
+        ? [{ label: "Dashboard", href: "/chat" }]
+        : [{ label: "Login", href: "/login" }]),
+  ]
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/70 backdrop-blur-xl">
