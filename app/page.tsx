@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { LandingNavbar } from "@/components/landing-navbar"
 import { ChatInterface } from "@/components/chat-interface"
@@ -10,6 +11,7 @@ import { Stats } from "@/components/stats"
 import { Footer } from "@/components/footer"
 
 export default function Page() {
+  const router = useRouter()
   const { user, loading } = useAuth()
   const [idToken, setIdToken] = useState<string | null>(null)
   const [chatActive, setChatActive] = useState(false)
@@ -22,11 +24,18 @@ export default function Page() {
     }
   }, [user])
 
+  useEffect(() => {
+    if (loading) return
+    if (user) {
+      router.replace("/chat")
+    }
+  }, [user, loading, router])
+
   const handleChatStart = useCallback(() => {
     setChatActive(true)
   }, [])
 
-  if (loading || (user && !idToken)) {
+  if (loading || user) {
     return (
       <div className="flex h-dvh items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />

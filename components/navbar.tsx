@@ -20,7 +20,7 @@ export function Navbar() {
       ? []
       : user
         ? [{ label: "Dashboard", href: "/chat" }]
-        : [{ label: "Login", href: "/login" }]),
+        : []),
   ]
 
   return (

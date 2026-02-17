@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { User, Mail, CreditCard, LogOut } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
@@ -8,9 +8,10 @@ import { useAuth } from "@/contexts/auth-context"
 export default function AccountPage() {
   const router = useRouter()
   const { user, loading, signOut } = useAuth()
+  const isSigningOut = useRef(false)
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !user && !isSigningOut.current) {
       router.replace("/login")
     }
   }, [loading, user, router])
@@ -26,8 +27,9 @@ export default function AccountPage() {
   if (!user) return null
 
   async function handleSignOut() {
+    isSigningOut.current = true
     await signOut()
-    router.push("/")
+    router.replace("/")
   }
 
   return (

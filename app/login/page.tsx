@@ -278,7 +278,7 @@ export default function LoginPage() {
             >
               {isSignUp
                 ? "Already have an account? Log in"
-                : "Don't have an account? Sign up"}
+                : "Don't have an account? Sign in"}
             </button>
           </div>
         </div>
