@@ -18,7 +18,7 @@ export function HowItWorks() {
     <section
       ref={ref}
       id="how-it-works"
-      className="relative overflow-hidden px-6 py-24 md:py-32"
+      className="relative overflow-hidden px-6 py-14 md:py-20"
     >
       {/* Dark background */}
       <div
@@ -66,7 +66,7 @@ export function HowItWorks() {
           </h2>
         </ScrollReveal>
 
-        <div className="relative mt-16 md:mt-24">
+        <div className="relative mt-10 md:mt-14">
           {/* Animated horizontal progress line */}
           <div className="absolute left-0 right-0 top-0 hidden h-px bg-white/10 md:block">
             <motion.div className="h-full bg-primary/40" style={{ width: lineWidth }} />
@@ -100,14 +100,6 @@ export function HowItWorks() {
           </div>
         </div>
 
-        <ScrollReveal className="mt-16 md:mt-20" direction="up" distance={30}>
-          <a
-            href="/login"
-            className="inline-flex items-center rounded-lg bg-primary px-8 py-3.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all duration-300 hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/25 hover:scale-[1.02] active:scale-[0.98]"
-          >
-            Try it free
-          </a>
-        </ScrollReveal>
       </div>
     </section>
   )

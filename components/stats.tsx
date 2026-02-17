@@ -102,7 +102,7 @@ export function Stats() {
   return (
     <section
       ref={parallaxRef}
-      className="relative overflow-hidden px-6 py-24 md:py-32"
+      className="relative overflow-hidden px-6 py-14 md:py-20"
     >
       {/* Parallax glow */}
       <motion.div
