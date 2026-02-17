@@ -118,7 +118,7 @@ export default function LoginPage() {
             href="/"
             className="text-2xl font-bold tracking-tight text-foreground"
           >
-            Vera
+            Demian
           </a>
           <p className="mt-2 text-sm text-muted-foreground">
             {isSignUp

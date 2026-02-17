@@ -223,7 +223,7 @@ export function ChatInterface({
               </FadeIn>
               <FadeIn delay={0.15}>
                 <p className="mt-4 max-w-md text-lg leading-relaxed text-muted-foreground">
-                  Describe your audience and Vera will simulate them, giving you
+                  Describe your audience and Demian will simulate them, giving you
                   feedback that actually matters.
                 </p>
                 {isTrialMode && (
@@ -330,7 +330,7 @@ export function ChatInterface({
                         /* ── Coaching card ── */
                         <div className="rounded-2xl border border-border/60 border-l-2 border-l-primary/25 bg-white px-6 py-5 shadow-sm">
                           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-primary/60">
-                            Vera
+                            Demian
                           </p>
                           <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
                             <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -400,7 +400,7 @@ export function ChatInterface({
                   messages[messages.length - 1].content === "" && (
                     <div className="rounded-2xl border border-border/60 border-l-2 border-l-primary/25 bg-white px-6 py-5 shadow-sm">
                       <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-primary/60">
-                        Vera
+                        Demian
                       </p>
                       <div className="flex items-center gap-3">
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -506,7 +506,7 @@ export function ChatInterface({
           <DialogHeader>
             <DialogTitle>You&apos;ve used your free messages</DialogTitle>
             <DialogDescription>
-              Create a free account to keep coaching with Vera.
+              Create a free account to keep coaching with Demian.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row">

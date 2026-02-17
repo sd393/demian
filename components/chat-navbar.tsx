@@ -20,7 +20,7 @@ export function ChatNavbar({ isTrialMode }: ChatNavbarProps) {
     <nav className="flex-shrink-0 border-b border-border/50 bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <a href="/" className="text-xl font-bold tracking-tight text-foreground">
-          Vera
+          Demian
         </a>
         <div className="flex items-center gap-4">
           {isTrialMode ? (

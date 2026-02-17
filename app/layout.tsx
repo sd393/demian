@@ -5,9 +5,9 @@ import { AuthProvider } from '@/contexts/auth-context'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Vera — Rehearse with Your Real Audience, Powered by AI',
+  title: 'Demian - Rehearse with an AI audience',
   description:
-    'Vera simulates your target audience and gives detailed, personalized feedback on your presentations. Think of it as a rehearsal room powered by AI.',
+    'Demian simulates your target audience and gives detailed, personalized feedback on your presentations. Think of it as a rehearsal room powered by AI.',
 }
 
 export const viewport: Viewport = {
