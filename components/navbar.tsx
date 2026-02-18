@@ -27,7 +27,7 @@ export function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <a href="#" className="font-display text-xl font-bold tracking-tight text-foreground">
-          Demian
+          Vera
         </a>
 
         {/* Desktop nav */}

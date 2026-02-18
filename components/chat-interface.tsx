@@ -318,7 +318,7 @@ export function ChatInterface({
             <div className="flex flex-col items-center text-center">
               <FadeIn delay={0}>
                 <p className="font-display mb-2 text-xs font-semibold uppercase tracking-widest text-primary">
-                  Demian
+                  Vera
                 </p>
               </FadeIn>
               <FadeIn delay={0.1}>
@@ -358,7 +358,7 @@ export function ChatInterface({
               </FadeIn>
               <FadeIn delay={0.15}>
                 <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground sm:text-base md:text-lg">
-                  Describe your audience and Demian will simulate them, giving you
+                  Describe your audience and Vera will simulate them, giving you
                   feedback that feels human.
                 </p>
                 {isTrialMode && (
@@ -500,7 +500,7 @@ export function ChatInterface({
                         /* ── Assistant message ── */
                         <div>
                           <p className="font-display mb-2 text-xs font-semibold uppercase tracking-wide text-primary/60">
-                            Demian
+                            Vera
                           </p>
                           <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
                             <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -581,7 +581,7 @@ export function ChatInterface({
                   messages[messages.length - 1].content === "" && (
                     <div>
                       <p className="font-display mb-2 text-xs font-semibold uppercase tracking-wide text-primary/60">
-                        Demian
+                        Vera
                       </p>
                       <div className="flex items-center gap-3">
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -687,7 +687,7 @@ export function ChatInterface({
           <DialogHeader>
             <DialogTitle>You&apos;ve used your free messages</DialogTitle>
             <DialogDescription>
-              Create a free account to keep coaching with Demian.
+              Create a free account to keep coaching with Vera.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row">

@@ -56,7 +56,7 @@ export default function AccountPage() {
             href="/"
             className="font-display text-2xl font-bold tracking-tight text-foreground"
           >
-            Demian
+            Vera
           </a>
           <h1 className="mt-6 text-3xl font-bold tracking-tight text-foreground">
             Account Settings

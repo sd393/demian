@@ -123,7 +123,7 @@ export default function LoginPage() {
             href="/"
             className="font-display text-2xl font-bold tracking-tight text-foreground"
           >
-            Demian
+            Vera
           </a>
           <p className="mt-2 text-sm text-muted-foreground">
             {isSignUp

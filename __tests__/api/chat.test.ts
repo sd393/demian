@@ -5,7 +5,7 @@ function createMockStream() {
   return (async function* () {
     yield { choices: [{ delta: { content: 'Hello' } }] }
     yield { choices: [{ delta: { content: ' from' } }] }
-    yield { choices: [{ delta: { content: ' Demian' } }] }
+    yield { choices: [{ delta: { content: ' Vera' } }] }
   })()
 }
 
@@ -131,7 +131,7 @@ describe('POST /api/chat', () => {
 
     expect(contentChunks).toContain('Hello')
     expect(contentChunks).toContain(' from')
-    expect(contentChunks).toContain(' Demian')
+    expect(contentChunks).toContain(' Vera')
   })
 
   it('includes [DONE] marker at end of stream', async () => {

@@ -14,9 +14,9 @@ const libreCaslon = Libre_Caslon_Text({
 })
 
 export const metadata: Metadata = {
-  title: 'Demian - Rehearse with an AI audience',
+  title: 'Vera - Rehearse with an AI audience',
   description:
-    'Demian simulates your target audience and gives detailed, personalized feedback on your presentations. Think of it as a rehearsal room powered by AI.',
+    'Vera simulates your target audience and gives detailed, personalized feedback on your presentations. Think of it as a rehearsal room powered by AI.',
 }
 
 export const viewport: Viewport = {

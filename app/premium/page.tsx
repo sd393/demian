@@ -74,7 +74,7 @@ export default function PremiumPage() {
             href="/"
             className="font-display text-2xl font-bold tracking-tight text-foreground"
           >
-            Demian
+            Vera
           </a>
           <h1 className="mt-6 text-4xl font-bold tracking-tight text-foreground md:text-5xl">
             Choose your plan
