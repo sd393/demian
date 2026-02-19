@@ -312,14 +312,14 @@ export function useChat(authToken?: string | null) {
       const hasTranscript = transcriptRef.current !== null
       const hasResearch = researchContextRef.current !== null
       const uploadExists = updatedMessages.some((m) => m.attachment)
-      const userTextMessages = updatedMessages.filter(
-        (m) => m.role === 'user' && !m.attachment
-      )
-      // Trigger research when we have a transcript, no research yet, and the
-      // user has sent at least 2 text messages (the first after upload answers
-      // Vera's audience questions)
+      const uploadIndex = updatedMessages.findIndex((m) => m.attachment)
+      const postUploadUserMessages = updatedMessages
+        .slice(uploadIndex + 1)
+        .filter((m) => m.role === 'user')
+      // Trigger research on the first user message after upload (the audience
+      // description), as long as we have a transcript and haven't researched yet
       const shouldResearch =
-        hasTranscript && !hasResearch && uploadExists && userTextMessages.length >= 2
+        hasTranscript && !hasResearch && uploadExists && postUploadUserMessages.length >= 1
 
       if (shouldResearch) {
         await runResearchPipeline(transcriptRef.current!, updatedMessages)
@@ -380,10 +380,20 @@ export function useChat(authToken?: string | null) {
         }
 
         // Upload file directly to Vercel Blob (bypasses serverless body limit)
-        const blob = await upload(fileToUpload.name, fileToUpload, {
-          access: 'public',
-          handleUploadUrl: '/api/upload',
-        })
+        // Retry once on transient failure (CDN hiccup, cold-start timeout, etc.)
+        let blob: { url: string }
+        try {
+          blob = await upload(fileToUpload.name, fileToUpload, {
+            access: 'public',
+            handleUploadUrl: '/api/upload',
+          })
+        } catch {
+          await new Promise((r) => setTimeout(r, 1000))
+          blob = await upload(fileToUpload.name, fileToUpload, {
+            access: 'public',
+            handleUploadUrl: '/api/upload',
+          })
+        }
 
         const response = await fetch('/api/transcribe', {
           method: 'POST',
@@ -409,7 +419,14 @@ export function useChat(authToken?: string | null) {
         await streamChatResponse(updatedMessages, newTranscript)
       } catch (err: unknown) {
         setIsCompressing(false)
-        if (err instanceof Error && err.name === 'AbortError') {
+        // Only silently swallow abort if WE intentionally canceled (user
+        // started a new action). AbortErrors from the Vercel Blob client or
+        // browser-level timeouts should surface as visible errors.
+        if (
+          err instanceof Error &&
+          err.name === 'AbortError' &&
+          controller.signal.aborted
+        ) {
           setIsTranscribing(false)
           return
         }
