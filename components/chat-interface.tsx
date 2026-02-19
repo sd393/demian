@@ -267,7 +267,7 @@ export function ChatInterface({
   }, [])
 
   const isBusy = isCompressing || isTranscribing || isResearching || isStreaming
-  const isInputDisabled = isBusy || trialLimitReached
+  const isInputDisabled = isBusy || trialLimitReached || slideReview.isAnalyzing
   const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
 
   useEffect(() => {
