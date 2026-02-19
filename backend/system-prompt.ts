@@ -20,6 +20,13 @@ The user has not yet uploaded a presentation recording. Your job:
 3. While waiting for the upload, you can ask preliminary questions about their audience, context, and goals.
 4. If they describe their presentation in text instead, acknowledge it and work with that, but encourage uploading a recording for the most accurate feedback.`
 
+const PHASE_2_EMPTY_TRANSCRIPT = `CURRENT PHASE: Empty Recording
+The user uploaded a recording, but no speech was detected in the audio — the transcript is empty.
+Your job:
+1. Let them know you received their recording but couldn't detect any audible speech.
+2. Suggest possible causes: the recording may be silent, too quiet, or in a format that couldn't be processed.
+3. Ask them to try uploading again with a recording that contains clear, audible speech.`
+
 function buildPhase2WithTranscript(
   transcript: string,
   researchContext?: string
@@ -88,8 +95,10 @@ export function buildSystemPrompt(
   slideContext?: string,
 ): string {
   let phaseInstructions: string
-  if (transcript) {
-    phaseInstructions = buildPhase2WithTranscript(transcript, researchContext)
+  if (transcript !== undefined) {
+    phaseInstructions = !transcript.trim()
+      ? PHASE_2_EMPTY_TRANSCRIPT
+      : buildPhase2WithTranscript(transcript, researchContext)
   } else if (slideContext) {
     phaseInstructions = buildSlideDeckPhase(slideContext)
   } else {

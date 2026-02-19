@@ -23,8 +23,8 @@ import { AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 
 import { useChat, type ResearchMeta, type Attachment } from "@/hooks/use-chat"
-import { useSlideReview, type DeckFeedback, type SlideFeedback } from "@/hooks/use-slide-review"
 import { useRecorder } from "@/hooks/use-recorder"
+import { useSlideReview, type DeckFeedback, type SlideFeedback } from "@/hooks/use-slide-review"
 import { FadeIn, motion } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
 import {
@@ -89,14 +89,15 @@ function AudioWaveform({ analyser }: { analyser: AnalyserNode | null }) {
 
   useEffect(() => {
     if (!analyser || !containerRef.current) return
+    const a = analyser
     const bars = Array.from(
       containerRef.current.querySelectorAll('[data-bar]')
     ) as HTMLElement[]
-    const dataArray = new Uint8Array(analyser.frequencyBinCount)
+    const dataArray = new Uint8Array(a.frequencyBinCount)
     let rafId: number
 
     function update() {
-      analyser.getByteFrequencyData(dataArray)
+      a.getByteFrequencyData(dataArray)
       const step = Math.max(1, Math.floor(dataArray.length / bars.length))
       bars.forEach((bar, i) => {
         const value = dataArray[i * step] / 255
@@ -147,6 +148,7 @@ const SUGGESTIONS = [
   {
     icon: Mic,
     label: "Listen to my live presentation",
+    message: "",
     action: "record" as const,
   },
   {
@@ -272,6 +274,14 @@ export function ChatInterface({
     setSlideContext,
     clearError,
   } = useChat(authToken)
+
+  const {
+    isRecording,
+    elapsed,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useRecorder()
 
   const slideReview = useSlideReview(authToken)
   const hasSlidePanel = slideReview.panelOpen
@@ -968,6 +978,44 @@ export function ChatInterface({
         className="hidden"
         aria-label="Upload PDF"
       />
+
+      {/* Recording bar */}
+      {isRecording && (
+        <div className="flex-shrink-0 px-6 pb-4 pt-2">
+          <div className="mx-auto flex max-w-2xl items-center justify-between rounded-2xl border border-red-500/30 bg-red-500/5 px-5 py-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+              </span>
+              <span className="text-sm font-medium text-foreground">
+                Recording...
+              </span>
+              <span className="font-mono text-sm tabular-nums text-muted-foreground">
+                {formatElapsed(elapsed)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Cancel recording"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleStopRecording}
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500 text-white transition-colors hover:bg-red-600"
+                aria-label="Stop recording"
+              >
+                <Square className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Trial limit dialog */}
       <Dialog open={showTrialDialog} onOpenChange={setShowTrialDialog}>
