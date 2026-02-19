@@ -10,8 +10,6 @@ const nextConfig = {
   serverExternalPackages: [
     '@ffmpeg-installer/ffmpeg',
     'fluent-ffmpeg',
-    'pdf-parse',
-    'pdfjs-dist',
   ],
 }
 

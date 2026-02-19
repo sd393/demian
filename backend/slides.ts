@@ -2,7 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import crypto from 'crypto'
-import { PDFParse } from 'pdf-parse'
+import { extractText } from 'unpdf'
 
 export interface SlideText {
   slideNumber: number
@@ -37,19 +37,19 @@ export function slidesTempPath(ext: string): string {
 
 /**
  * Extract text content from each page of a PDF.
- * Uses pdf-parse which handles Node.js worker setup internally.
+ * Uses unpdf which works in serverless Node.js (no browser APIs needed).
  * Caps at MAX_SLIDES pages.
  */
 export async function extractSlideTexts(pdfPath: string): Promise<SlideText[]> {
   const pdfBuffer = await fs.readFile(pdfPath)
-  const parser = new PDFParse({ data: new Uint8Array(pdfBuffer) })
-  try {
-    const result = await parser.getText({ first: MAX_SLIDES })
-    return result.pages.map((page) => ({
-      slideNumber: page.num,
-      text: page.text.trim() || '[No text content on this slide]',
-    }))
-  } finally {
-    await parser.destroy()
-  }
+  const { totalPages, text: pages } = await extractText(
+    new Uint8Array(pdfBuffer),
+    { mergePages: false }
+  )
+
+  const pageCount = Math.min(totalPages, MAX_SLIDES)
+  return pages.slice(0, pageCount).map((text, i) => ({
+    slideNumber: i + 1,
+    text: text.trim() || '[No text content on this slide]',
+  }))
 }
