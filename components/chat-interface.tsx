@@ -15,12 +15,13 @@ import {
   ArrowRight,
   Search,
   ChevronDown,
+  PanelRight,
 } from "lucide-react"
 import { AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 
 import { useChat, type ResearchMeta, type Attachment } from "@/hooks/use-chat"
-import { useSlideReview } from "@/hooks/use-slide-review"
+import { useSlideReview, type DeckFeedback, type SlideFeedback } from "@/hooks/use-slide-review"
 import { FadeIn, motion } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
 import {
@@ -36,6 +37,40 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatSlideContextForChat(deck: DeckFeedback, feedbacks: SlideFeedback[]): string {
+  const lines: string[] = [
+    `Deck: "${deck.deckTitle}"`,
+    `Overall Score: ${deck.overallRating}/100`,
+    `Audience Assumed: ${deck.audienceAssumed}`,
+    ``,
+    `Executive Summary:`,
+    deck.executiveSummary,
+    ``,
+    `Top Priorities:`,
+    ...deck.topPriorities.map((p, i) => `${i + 1}. ${p}`),
+    ``,
+    `Slide-by-Slide Feedback:`,
+  ]
+
+  for (const f of feedbacks) {
+    const ratingLabel = f.rating === 'needs-work' ? 'NEEDS WORK' : f.rating.toUpperCase()
+    lines.push(``)
+    lines.push(`Slide ${f.slideNumber}: "${f.title}" — ${ratingLabel}`)
+    lines.push(`  ${f.headline}`)
+    if (f.quote) lines.push(`  (Quote from slide: "${f.quote}")`)
+    if (f.strengths.length > 0) {
+      lines.push(`  Strengths:`)
+      f.strengths.forEach((s) => lines.push(`    - ${s}`))
+    }
+    if (f.improvements.length > 0) {
+      lines.push(`  Improvements:`)
+      f.improvements.forEach((s) => lines.push(`    - ${s}`))
+    }
+  }
+
+  return lines.join('\n')
 }
 
 /* ── Empty-state starter prompts ── */
@@ -185,6 +220,7 @@ export function ChatInterface({
     sendMessage,
     uploadFile,
     addMessage,
+    setSlideContext,
     clearError,
   } = useChat(authToken)
 
@@ -239,7 +275,12 @@ export function ChatInterface({
   }, [isEmptyState, onChatStart])
 
   const exchangeCount = messages.filter((m) => m.role === "user").length
-  const hasUpload = messages.some((m) => m.attachment)
+  const hasAudioUpload = messages.some(
+    (m) =>
+      m.attachment &&
+      m.attachment.type !== "application/pdf" &&
+      !m.attachment.name.toLowerCase().endsWith(".pdf")
+  )
   const lastMessage = messages[messages.length - 1]
   const showFollowUps =
     !isBusy &&
@@ -247,14 +288,6 @@ export function ChatInterface({
     lastMessage?.role === "assistant" &&
     lastMessage.content.length > 0
   const followUps = exchangeCount <= 1 ? FOLLOW_UPS_EARLY : FOLLOW_UPS_LATER
-
-  const lastPdfMessageId =
-    messages.findLast(
-      (m) =>
-        m.attachment &&
-        (m.attachment.type === "application/pdf" ||
-          m.attachment.name.toLowerCase().endsWith(".pdf"))
-    )?.id ?? null
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -277,6 +310,15 @@ export function ChatInterface({
     if (slideReview.error) toast.error(slideReview.error)
   }, [slideReview.error])
 
+  // Feed completed slide analysis into the chat context so Vera can reference it
+  useEffect(() => {
+    if (slideReview.deckSummary && slideReview.slideFeedbacks.length > 0) {
+      setSlideContext(
+        formatSlideContextForChat(slideReview.deckSummary, slideReview.slideFeedbacks)
+      )
+    }
+  }, [slideReview.deckSummary, slideReview.slideFeedbacks, setSlideContext])
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = input.trim()
@@ -288,8 +330,8 @@ export function ChatInterface({
   function handlePdfAnalysis(file: File) {
     // Add a message to the chat timeline so the upload is visible in history
     const attachment: Attachment = { name: file.name, type: file.type || 'application/pdf', size: file.size }
-    addMessage('', attachment)
-    slideReview.uploadAndAnalyze(file)
+    const messageId = addMessage('', attachment)
+    slideReview.uploadAndAnalyze(file, undefined, messageId)
   }
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -342,7 +384,14 @@ export function ChatInterface({
             !!msg.attachment &&
             (msg.attachment.type === "application/pdf" ||
               msg.attachment.name.toLowerCase().endsWith(".pdf"))
-          const isLastPdfMsg = isPdfAttachment && msg.id === lastPdfMessageId
+          const hasReview = isPdfAttachment && !!slideReview.reviews[msg.id]
+          const isActiveAnalysis =
+            isPdfAttachment &&
+            slideReview.activeReviewKey === msg.id &&
+            slideReview.isAnalyzing
+          // Hide the button only when this message is already what's shown in the open panel
+          const isCurrentlyShown =
+            slideReview.displayedKey === msg.id && slideReview.panelOpen
           return (
             <div key={msg.id}>
               {msg.role === "assistant" ? (
@@ -374,17 +423,24 @@ export function ChatInterface({
                             {formatFileSize(msg.attachment.size)}
                           </p>
                         </div>
-                        {isLastPdfMsg &&
-                          slideReview.progress.step !== "idle" &&
-                          !slideReview.panelOpen && (
-                            <button
-                              type="button"
-                              onClick={slideReview.openPanel}
-                              className="ml-1 flex-shrink-0 rounded bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-                            >
-                              View review
-                            </button>
-                          )}
+                        {(hasReview || isActiveAnalysis) && !isCurrentlyShown && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              slideReview.reviews[msg.id]
+                                ? slideReview.openReview(msg.id)
+                                : slideReview.openPanel()
+                            }
+                            title={isActiveAnalysis ? "View progress" : "View review"}
+                            className="ml-1 flex-shrink-0 rounded bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                          >
+                            {hasSlidePanel ? (
+                              <PanelRight className="h-3.5 w-3.5" />
+                            ) : (
+                              isActiveAnalysis ? "View progress" : "View review"
+                            )}
+                          </button>
+                        )}
                       </div>
                     )}
                     {msg.content && (
@@ -704,7 +760,7 @@ export function ChatInterface({
                             left
                           </span>
                         )}
-                      {hasUpload && (
+                      {hasAudioUpload && (
                         <span className="flex items-center gap-1.5">
                           <FileAudio className="h-3 w-3" />
                           Recording uploaded
@@ -723,7 +779,11 @@ export function ChatInterface({
           )}
         </AnimatePresence>
 
-        {!isEmptyState && compactInputBar}
+        {!isEmptyState && (
+          hasSlidePanel
+            ? <div className="hidden md:block">{compactInputBar}</div>
+            : compactInputBar
+        )}
       </div>
 
       {/* ── Slide panel (absolutely positioned, slides in from the right) ── */}
@@ -742,10 +802,6 @@ export function ChatInterface({
               onClose={slideReview.closePanel}
               onReset={slideReview.reset}
             />
-            {/* Mobile: input bar below slide panel */}
-            <div className="flex-shrink-0 md:hidden">
-              {compactInputBar}
-            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -243,6 +243,113 @@ describe('useSlideReview', () => {
     expect(result.current.panelOpen).toBe(false)
   })
 
+  it('stores a review snapshot keyed by reviewKey after analysis', async () => {
+    const streamLines = [
+      sseData('slide_feedback', SLIDE_FEEDBACK),
+      sseData('deck_summary', DECK_SUMMARY),
+      'data: [DONE]\n\n',
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSSEStream(streamLines),
+        json: vi.fn(),
+      })
+    )
+
+    const { result } = renderHook(() => useSlideReview('test-token'))
+    const file = new File(['%PDF-1.4'], 'deck.pdf', { type: 'application/pdf' })
+
+    await act(async () => {
+      await result.current.uploadAndAnalyze(file, undefined, 'msg-abc')
+    })
+
+    await waitFor(() => {
+      expect(result.current.reviews['msg-abc']).toBeDefined()
+    })
+
+    const snapshot = result.current.reviews['msg-abc']
+    expect(snapshot.slideFeedbacks).toHaveLength(1)
+    expect(snapshot.deckSummary?.deckTitle).toBe('My Deck')
+    expect(snapshot.blobUrl).toBe('https://example.vercel-storage.com/deck.pdf')
+    expect(snapshot.fileName).toBe('deck.pdf')
+  })
+
+  it('openReview restores snapshot and opens panel', async () => {
+    const streamLines = [
+      sseData('slide_feedback', SLIDE_FEEDBACK),
+      sseData('deck_summary', DECK_SUMMARY),
+      'data: [DONE]\n\n',
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSSEStream(streamLines),
+        json: vi.fn(),
+      })
+    )
+
+    const { result } = renderHook(() => useSlideReview('test-token'))
+    const file = new File(['%PDF-1.4'], 'deck.pdf', { type: 'application/pdf' })
+
+    await act(async () => {
+      await result.current.uploadAndAnalyze(file, undefined, 'msg-xyz')
+    })
+
+    await waitFor(() => {
+      expect(result.current.reviews['msg-xyz']).toBeDefined()
+    })
+
+    // Close the panel, then clear display state by reopening via a different path
+    act(() => { result.current.closePanel() })
+    expect(result.current.panelOpen).toBe(false)
+
+    // openReview should restore the snapshot and open panel
+    act(() => { result.current.openReview('msg-xyz') })
+    expect(result.current.panelOpen).toBe(true)
+    expect(result.current.slideFeedbacks).toHaveLength(1)
+    expect(result.current.deckSummary?.deckTitle).toBe('My Deck')
+    expect(result.current.progress.step).toBe('done')
+  })
+
+  it('openReview is a no-op for unknown key', () => {
+    const { result } = renderHook(() => useSlideReview('test-token'))
+    act(() => { result.current.openReview('nonexistent-key') })
+    expect(result.current.panelOpen).toBe(false)
+    expect(result.current.slideFeedbacks).toHaveLength(0)
+  })
+
+  it('reset clears reviews state', async () => {
+    const streamLines = [
+      sseData('slide_feedback', SLIDE_FEEDBACK),
+      'data: [DONE]\n\n',
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSSEStream(streamLines),
+        json: vi.fn(),
+      })
+    )
+
+    const { result } = renderHook(() => useSlideReview('test-token'))
+    const file = new File(['%PDF-1.4'], 'deck.pdf', { type: 'application/pdf' })
+
+    await act(async () => {
+      await result.current.uploadAndAnalyze(file, undefined, 'msg-reset')
+    })
+
+    await waitFor(() => {
+      expect(result.current.reviews['msg-reset']).toBeDefined()
+    })
+
+    act(() => { result.current.reset() })
+    expect(result.current.reviews).toEqual({})
+  })
+
   it('includes authorization header when authToken provided', async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,

@@ -68,13 +68,13 @@ export function SlideReviewInterface({ authToken }: SlideReviewInterfaceProps) {
     }
   }, [error])
 
-  // Scroll to newly completed slide in the feed
+  // Scroll to newly completed slide in the feed (only while still processing)
   useEffect(() => {
-    if (slideFeedbacks.length > 0 && feedbackScrollRef.current) {
+    if (isProcessing && slideFeedbacks.length > 0 && feedbackScrollRef.current) {
       feedbackScrollRef.current.scrollTop =
         feedbackScrollRef.current.scrollHeight
     }
-  }, [slideFeedbacks.length])
+  }, [slideFeedbacks.length, isProcessing])
 
   const handleFiles = useCallback(
     (files: FileList | null) => {

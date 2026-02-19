@@ -7,6 +7,14 @@ import type { SlideFeedback, DeckFeedback } from '@/backend/slides'
 
 export type { SlideFeedback, DeckFeedback }
 
+export interface ReviewSnapshot {
+  slideFeedbacks: SlideFeedback[]
+  deckSummary: DeckFeedback | null
+  thumbnails: Record<number, string>
+  blobUrl: string
+  fileName: string
+}
+
 export type AnalysisStep =
   | 'idle'
   | 'uploading'
@@ -29,10 +37,15 @@ export interface UseSlideReviewReturn {
   error: string | null
   panelOpen: boolean
   thumbnails: Record<number, string>
-  uploadAndAnalyze: (file: File, audienceContext?: string) => Promise<void>
+  reviews: Record<string, ReviewSnapshot>
+  activeReviewKey: string | null
+  displayedKey: string | null
+  isAnalyzing: boolean
+  uploadAndAnalyze: (file: File, audienceContext?: string, reviewKey?: string) => Promise<void>
   reanalyze: (audienceContext: string) => Promise<void>
   openPanel: () => void
   closePanel: () => void
+  openReview: (key: string) => void
   reset: () => void
 }
 
@@ -49,13 +62,63 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
   const [error, setError] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [thumbnails, setThumbnails] = useState<Record<number, string>>({})
+  const [reviews, setReviews] = useState<Record<string, ReviewSnapshot>>({})
+  const [activeReviewKey, setActiveReviewKey] = useState<string | null>(null)
+  const [displayedKey, setDisplayedKey] = useState<string | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
-  // Store blob URL so reanalyze can skip re-uploading
   const storedBlobUrlRef = useRef<string | null>(null)
   const storedFileNameRef = useRef<string | null>(null)
+  const activeReviewKeyRef = useRef<string | null>(null)
+  // Tracks which review is currently shown — gates display state updates in
+  // runAnalysis so switching to a past review doesn't get trampled.
+  const displayedKeyRef = useRef<string | null>(null)
+  // Always-current progress + thumbnails for the running analysis, regardless
+  // of whether it's displayed. Used to restore state when switching back.
+  const runningProgressRef = useRef<AnalysisProgress>(INITIAL_PROGRESS)
+  const runningThumbnailsRef = useRef<Record<number, string>>({})
 
   const openPanel = useCallback(() => setPanelOpen(true), [])
   const closePanel = useCallback(() => setPanelOpen(false), [])
+
+  const openReview = useCallback((key: string) => {
+    setReviews((prev) => {
+      const snapshot = prev[key]
+      if (!snapshot) return prev
+
+      const isRunning = activeReviewKeyRef.current === key
+
+      setSlideFeedbacks(snapshot.slideFeedbacks)
+      setDeckSummary(snapshot.deckSummary)
+      displayedKeyRef.current = key
+      setDisplayedKey(key)
+
+      if (isRunning) {
+        // Restore the live progress tracked by runAnalysis (never 'done')
+        setProgress(runningProgressRef.current)
+        // Use the rendered thumbnails directly; snapshot may still have {} if
+        // the post-analysis patch hasn't run yet
+        setThumbnails(
+          Object.keys(runningThumbnailsRef.current).length > 0
+            ? runningThumbnailsRef.current
+            : snapshot.thumbnails
+        )
+      } else {
+        setProgress({
+          step: 'done',
+          slidesCompleted: snapshot.slideFeedbacks.length,
+          slidesTotal: snapshot.slideFeedbacks.length,
+        })
+        setThumbnails(snapshot.thumbnails)
+      }
+
+      storedBlobUrlRef.current = snapshot.blobUrl
+      storedFileNameRef.current = snapshot.fileName
+      setError(null)
+      setPanelOpen(true)
+      return prev
+    })
+  }, [])
 
   const reset = useCallback(() => {
     setSlideFeedbacks([])
@@ -63,17 +126,43 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     setProgress(INITIAL_PROGRESS)
     setError(null)
     setThumbnails({})
+    setReviews({})
     storedBlobUrlRef.current = null
     storedFileNameRef.current = null
+    activeReviewKeyRef.current = null
+    displayedKeyRef.current = null
+    runningProgressRef.current = INITIAL_PROGRESS
+    runningThumbnailsRef.current = {}
+    setActiveReviewKey(null)
+    setDisplayedKey(null)
+    setIsAnalyzing(false)
     setPanelOpen(false)
   }, [])
 
   const runAnalysis = useCallback(
-    async (blobUrl: string, fileName: string, audienceContext?: string) => {
+    async (blobUrl: string, fileName: string, audienceContext?: string, reviewKey?: string) => {
+      const initialProgress: AnalysisProgress = { step: 'downloading', slidesCompleted: 0, slidesTotal: 0 }
       setSlideFeedbacks([])
       setDeckSummary(null)
       setError(null)
-      setProgress({ step: 'downloading', slidesCompleted: 0, slidesTotal: 0 })
+      setProgress(initialProgress)
+      setIsAnalyzing(true)
+      runningProgressRef.current = initialProgress
+
+      if (reviewKey) {
+        activeReviewKeyRef.current = reviewKey
+        displayedKeyRef.current = reviewKey
+        setActiveReviewKey(reviewKey)
+        setDisplayedKey(reviewKey)
+        setReviews((prev) => ({
+          ...prev,
+          [reviewKey]: {
+            ...(prev[reviewKey] ?? { blobUrl, fileName, thumbnails: {} }),
+            slideFeedbacks: [],
+            deckSummary: null,
+          },
+        }))
+      }
 
       const response = await fetch('/api/slides/analyze', {
         method: 'POST',
@@ -86,9 +175,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
       if (!response.ok) {
         const json = await response.json().catch(() => ({}))
-        throw new Error(
-          json.error ?? `Server error ${response.status}`
-        )
+        throw new Error(json.error ?? `Server error ${response.status}`)
       }
 
       const reader = response.body?.getReader()
@@ -96,6 +183,11 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
       const decoder = new TextDecoder()
       let buffer = ''
+      const localFeedbacks: SlideFeedback[] = []
+      let localDeckSummary: DeckFeedback | null = null
+      // Local mutable copy so we can compute incremental progress without
+      // re-reading the ref on every event
+      let currentProgress: AnalysisProgress = initialProgress
 
       while (true) {
         const { done, value } = await reader.read()
@@ -110,7 +202,11 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
           const payload = line.slice(6).trim()
 
           if (payload === '[DONE]') {
-            setProgress((p) => ({ ...p, step: 'done' }))
+            currentProgress = { ...currentProgress, step: 'done' }
+            runningProgressRef.current = currentProgress
+            if (!reviewKey || displayedKeyRef.current === reviewKey) {
+              setProgress(currentProgress)
+            }
             continue
           }
 
@@ -122,37 +218,75 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
           }
 
           if (event.type === 'status') {
-            const d = event.data as {
-              step: string
-              total?: number
-              completed?: number
-            }
-            setProgress({
+            const d = event.data as { step: string; total?: number; completed?: number }
+            currentProgress = {
               step: d.step as AnalysisStep,
               slidesTotal: d.total ?? 0,
               slidesCompleted: d.completed ?? 0,
-            })
+            }
+            runningProgressRef.current = currentProgress
+            if (!reviewKey || displayedKeyRef.current === reviewKey) {
+              setProgress(currentProgress)
+            }
           } else if (event.type === 'slide_feedback') {
             const feedback = event.data as SlideFeedback
-            setSlideFeedbacks((prev) => [...prev, feedback])
-            setProgress((p) => ({
-              ...p,
-              slidesCompleted: p.slidesCompleted + 1,
-            }))
+            localFeedbacks.push(feedback)
+            currentProgress = { ...currentProgress, slidesCompleted: currentProgress.slidesCompleted + 1 }
+            runningProgressRef.current = currentProgress
+
+            if (reviewKey) {
+              setReviews((prev) => {
+                const existing = prev[reviewKey]
+                if (!existing) return prev
+                return { ...prev, [reviewKey]: { ...existing, slideFeedbacks: [...localFeedbacks] } }
+              })
+            }
+
+            if (!reviewKey || displayedKeyRef.current === reviewKey) {
+              setSlideFeedbacks((prev) => [...prev, feedback])
+              setProgress(currentProgress)
+            }
           } else if (event.type === 'deck_summary') {
-            setDeckSummary(event.data as DeckFeedback)
+            localDeckSummary = event.data as DeckFeedback
+
+            if (reviewKey) {
+              setReviews((prev) => {
+                const existing = prev[reviewKey]
+                if (!existing) return prev
+                return { ...prev, [reviewKey]: { ...existing, deckSummary: localDeckSummary } }
+              })
+            }
+
+            if (!reviewKey || displayedKeyRef.current === reviewKey) {
+              setDeckSummary(localDeckSummary)
+            }
           } else if (event.type === 'error') {
             const d = event.data as { message: string }
             throw new Error(d.message)
           }
         }
       }
+
+      if (reviewKey) {
+        setReviews((prev) => ({
+          ...prev,
+          [reviewKey]: {
+            slideFeedbacks: localFeedbacks,
+            deckSummary: localDeckSummary,
+            thumbnails: prev[reviewKey]?.thumbnails ?? {},
+            blobUrl,
+            fileName,
+          },
+        }))
+      }
+
+      setIsAnalyzing(false)
     },
     [authToken]
   )
 
   const uploadAndAnalyze = useCallback(
-    async (file: File, audienceContext?: string) => {
+    async (file: File, audienceContext?: string, reviewKey?: string) => {
       const validation = validateSlideFile({
         name: file.name,
         type: file.type,
@@ -163,12 +297,18 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
         return
       }
 
-      // Clear previous results and open the panel before starting
       setSlideFeedbacks([])
       setDeckSummary(null)
       setError(null)
       storedBlobUrlRef.current = null
       storedFileNameRef.current = null
+      runningThumbnailsRef.current = {}
+      if (reviewKey) {
+        activeReviewKeyRef.current = reviewKey
+        displayedKeyRef.current = reviewKey
+        setActiveReviewKey(reviewKey)
+        setDisplayedKey(reviewKey)
+      }
       setPanelOpen(true)
 
       try {
@@ -182,17 +322,46 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
         storedBlobUrlRef.current = blob.url
         storedFileNameRef.current = file.name
 
-        // Render thumbnails client-side in the background (non-blocking)
-        import('@/lib/pdf-thumbnails').then(({ renderPdfThumbnails }) =>
-          renderPdfThumbnails(blob.url)
-        ).then((t) => setThumbnails(t)).catch(() => {})
+        const thumbnailPromise = import('@/lib/pdf-thumbnails')
+          .then(({ renderPdfThumbnails }) => renderPdfThumbnails(blob.url))
+          .catch(() => ({} as Record<number, string>))
 
-        await runAnalysis(blob.url, file.name, audienceContext)
+        thumbnailPromise.then((t) => {
+          // Always store for the running analysis so openReview can access them
+          runningThumbnailsRef.current = t
+          // Only update live display state if this analysis is currently shown
+          if (!reviewKey || displayedKeyRef.current === reviewKey) {
+            setThumbnails(t)
+          }
+          // Patch snapshot immediately if it already exists
+          if (reviewKey) {
+            setReviews((prev) => {
+              const existing = prev[reviewKey]
+              if (!existing) return prev
+              return { ...prev, [reviewKey]: { ...existing, thumbnails: t } }
+            })
+          }
+        })
+
+        await runAnalysis(blob.url, file.name, audienceContext, reviewKey)
+
+        // Ensure thumbnails are in the snapshot (handles the race where
+        // thumbnails resolved before the snapshot was created)
+        if (reviewKey) {
+          const t = await thumbnailPromise
+          setReviews((prev) => {
+            const existing = prev[reviewKey]
+            if (!existing) return prev
+            if (Object.keys(existing.thumbnails).length > 0) return prev
+            return { ...prev, [reviewKey]: { ...existing, thumbnails: t } }
+          })
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'An unexpected error occurred'
         setError(message)
         setProgress((p) => ({ ...p, step: 'error' }))
+        setIsAnalyzing(false)
       }
     },
     [runAnalysis]
@@ -208,12 +377,13 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
       }
 
       try {
-        await runAnalysis(blobUrl, fileName, audienceContext)
+        await runAnalysis(blobUrl, fileName, audienceContext, displayedKeyRef.current ?? undefined)
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'An unexpected error occurred'
         setError(message)
         setProgress((p) => ({ ...p, step: 'error' }))
+        setIsAnalyzing(false)
       }
     },
     [runAnalysis]
@@ -226,10 +396,15 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     error,
     panelOpen,
     thumbnails,
+    reviews,
+    activeReviewKey,
+    displayedKey,
+    isAnalyzing,
     uploadAndAnalyze,
     reanalyze,
     openPanel,
     closePanel,
+    openReview,
     reset,
   }
 }

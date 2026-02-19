@@ -178,6 +178,25 @@ describe('chatRequestSchema', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('accepts optional slideContext field', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Tell me about my deck' }],
+      slideContext: 'Deck: "Q4 Strategy"\nOverall Score: 72/100',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.slideContext).toBe('Deck: "Q4 Strategy"\nOverall Score: 72/100')
+    }
+  })
+
+  it('rejects slideContext exceeding 30,000 chars', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      slideContext: 'x'.repeat(30_001),
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('sanitizeInput', () => {
