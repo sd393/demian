@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { upload } from '@vercel/blob/client'
 import { validateSlideFile } from '@/backend/validation'
 import type { SlideFeedback, DeckFeedback } from '@/backend/slides'
@@ -77,6 +77,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
   // of whether it's displayed. Used to restore state when switching back.
   const runningProgressRef = useRef<AnalysisProgress>(INITIAL_PROGRESS)
   const runningThumbnailsRef = useRef<Record<number, string>>({})
+  const sessionBlobUrlsRef = useRef<Set<string>>(new Set())
 
   const openPanel = useCallback(() => setPanelOpen(true), [])
   const closePanel = useCallback(() => setPanelOpen(false), [])
@@ -321,6 +322,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
         storedBlobUrlRef.current = blob.url
         storedFileNameRef.current = file.name
+        sessionBlobUrlsRef.current.add(blob.url)
 
         const thumbnailPromise = import('@/lib/pdf-thumbnails')
           .then(({ renderPdfThumbnails }) => renderPdfThumbnails(blob.url))
@@ -388,6 +390,35 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     },
     [runAnalysis]
   )
+
+  const deleteBlobUrls = useCallback((urls: string[]) => {
+    if (urls.length === 0) return
+    const payload = JSON.stringify({ urls })
+    const sent = navigator.sendBeacon(
+      '/api/blob/delete',
+      new Blob([payload], { type: 'application/json' })
+    )
+    if (!sent) {
+      fetch('/api/blob/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    const onPageHide = () => {
+      deleteBlobUrls([...sessionBlobUrlsRef.current])
+    }
+
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      deleteBlobUrls([...sessionBlobUrlsRef.current])
+    }
+  }, [deleteBlobUrls])
 
   return {
     slideFeedbacks,

@@ -97,6 +97,10 @@ export const slideAnalyzeRequestSchema = z.object({
   audienceContext: z.string().max(2_000).optional(),
 })
 
+export const blobDeleteRequestSchema = z.object({
+  urls: z.array(z.string().url()).min(1).max(50),
+})
+
 export function sanitizeInput(text: string): string {
   return text.trim()
 }
