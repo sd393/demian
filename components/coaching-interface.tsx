@@ -18,6 +18,7 @@ import {
   Search,
   ChevronDown,
   Play,
+  Smile,
 } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "sonner"
@@ -320,12 +321,12 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     : satisfiedWindow ? "satisfied"
     : "idle"
 
-  const thinkingLabel = isCompressing ? "Compressing audio..."
-    : isTranscribing ? "Transcribing..."
-    : isResearching ? "Researching your audience..."
-    : (presentationMode && isStreaming) ? "Analyzing your presentation..."
-    : isTTSLoading ? "Preparing response..."
-    : "Thinking..."
+  const thinkingLabel = isCompressing ? "Listening closely..."
+    : isTranscribing ? "Taking it all in..."
+    : isResearching ? "Getting to know your audience..."
+    : (presentationMode && isStreaming) ? "Gathering thoughts..."
+    : isTTSLoading ? "Finding the right words..."
+    : "Hmm, let me think..."
 
   const exchangeCount = messages.filter((m) => m.role === "user").length
   const lastMessage = messages[messages.length - 1]
@@ -695,11 +696,21 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                             aria-label="Start recording">
                             <Mic className="h-4 w-4" />
                           </button>
-                          <button type="submit" disabled={!input.trim() || isInputDisabled}
-                            className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
-                            aria-label="Send message">
-                            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                          </button>
+                          {input.trim() ? (
+                            <button type="submit" disabled={isInputDisabled}
+                              className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
+                              aria-label="Send message">
+                              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            </button>
+                          ) : (
+                            <button type="button"
+                              onClick={() => setPresentationMode(true)}
+                              disabled={isBusy || trialLimitReached}
+                              className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
+                              aria-label="Enter presentation mode">
+                              <Smile className="h-4 w-4" />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
@@ -797,22 +808,6 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                 </div>
               </div>
 
-              {/* Present mode trigger */}
-              <div className="flex-shrink-0 px-4 sm:px-6 pb-2">
-                <div className="mx-auto max-w-2xl">
-                  <button
-                    type="button"
-                    onClick={() => setPresentationMode(true)}
-                    disabled={isBusy || trialLimitReached}
-                    className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
-                    aria-label="Enter presentation mode"
-                  >
-                    <Play className="h-3.5 w-3.5 fill-current" />
-                    Present mode
-                  </button>
-                </div>
-              </div>
-
               {/* Bottom input bar */}
               <div className="flex-shrink-0 px-4 pb-4 pt-2 sm:px-6">
                 <form onSubmit={handleSubmit} className="mx-auto max-w-2xl">
@@ -839,11 +834,21 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                           aria-label="Start recording">
                           <Mic className="h-4 w-4" />
                         </button>
-                        <button type="submit" disabled={!input.trim() || isInputDisabled}
-                          className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
-                          aria-label="Send message">
-                          {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                        </button>
+                        {input.trim() ? (
+                          <button type="submit" disabled={isInputDisabled}
+                            className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
+                            aria-label="Send message">
+                            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                          </button>
+                        ) : (
+                          <button type="button"
+                            onClick={() => setPresentationMode(true)}
+                            disabled={isBusy || trialLimitReached}
+                            className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
+                            aria-label="Enter presentation mode">
+                            <Smile className="h-4 w-4" />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
