@@ -19,7 +19,14 @@ function getApp(): App {
       )
     }
 
-    const serviceAccount = JSON.parse(serviceAccountJson)
+    let serviceAccount: Record<string, string>
+    try {
+      serviceAccount = JSON.parse(serviceAccountJson)
+    } catch {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY as JSON. Length:', serviceAccountJson.length, 'First 80 chars:', serviceAccountJson.substring(0, 80))
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON')
+    }
+
     app = initializeApp({
       credential: cert(serviceAccount),
     })

@@ -29,7 +29,8 @@ export async function verifyAuth(
   try {
     const decoded = await adminAuth().verifyIdToken(token)
     return { uid: decoded.uid, email: decoded.email }
-  } catch {
+  } catch (err) {
+    console.error('verifyAuth failed:', err)
     return new Response(
       JSON.stringify({ error: 'Invalid or expired token' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -62,7 +63,8 @@ export async function requireAuth(
   try {
     const decoded = await adminAuth().verifyIdToken(token)
     return { uid: decoded.uid, email: decoded.email }
-  } catch {
+  } catch (err) {
+    console.error('requireAuth failed:', err)
     return new Response(
       JSON.stringify({ error: 'Invalid or expired token' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
