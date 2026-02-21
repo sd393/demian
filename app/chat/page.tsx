@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { Suspense, useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
 import { ChatNavbar } from "@/components/chat-navbar"
 import { CoachingInterface } from "@/components/coaching-interface"
 
-export default function ChatPage() {
+function ChatContent() {
   const { user, loading, plan, refreshSubscription } = useAuth()
   const [idToken, setIdToken] = useState<string | null>(null)
   const searchParams = useSearchParams()
@@ -47,5 +47,17 @@ export default function ChatPage() {
         isTrialMode={isTrialMode}
       />
     </div>
+  )
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    }>
+      <ChatContent />
+    </Suspense>
   )
 }

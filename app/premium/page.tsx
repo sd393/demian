@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { Suspense, useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Check } from "lucide-react"
 import { toast } from "sonner"
@@ -52,7 +52,7 @@ const plans = [
   },
 ]
 
-export default function PremiumPage() {
+function PremiumContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, plan, loading } = useAuth()
@@ -223,5 +223,13 @@ export default function PremiumPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function PremiumPage() {
+  return (
+    <Suspense>
+      <PremiumContent />
+    </Suspense>
   )
 }
