@@ -150,6 +150,10 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
   const layersRef = useRef<Map<LayerName, HTMLElement>>(new Map())
   const ready = useFacePreload()
 
+  // PNG mouth state overlays (same 1696×2528 canvas as SVG layers)
+  const mouthHalfRef = useRef<HTMLImageElement>(null)
+  const mouthOpenRef = useRef<HTMLImageElement>(null)
+
   // Emotion target ref — updated from prop, lerped in rAF
   const emotionTargetRef = useRef<EmotionOffsets>(EMOTION_MAP.neutral)
   const emotionCurrentRef = useRef<EmotionOffsets>({ ...EMOTION_MAP.neutral })
@@ -444,24 +448,21 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         thinkingLipTension *= 0.95
       }
 
-      // Apply volume with slight asymmetry (jaw leads, lips follow)
-      // + emotion offsets + thinking lip tension
-      const jawY = vol * h * 0.02 + emo.jawY * h
-      const lipLowY = vol * h * 0.015
-      const lipLineY = vol * h * 0.006 + emo.lipLineY * h - thinkingLipTension * h * 0.002
-      const lipUpY = -(vol * h * 0.003) + emo.lipUpperY * h - thinkingLipTension * h * 0.001
+      // Mouth state — SVG layers handle closed/neutral; PNGs handle half-open and open
+      const mouthState = vol >= 0.55 ? "open" : vol >= 0.18 ? "half" : "closed"
+      const svgOpacity = mouthState === "closed" ? "1" : "0"
 
       const jawEl = get("jaw")
-      if (jawEl) jawEl.style.transform = `translateY(${jawY}px)`
-
       const lipLo = get("lip-lower")
-      if (lipLo) lipLo.style.transform = `translateY(${lipLowY}px)`
-
       const lipLn = get("lip-line")
-      if (lipLn) lipLn.style.transform = `translateY(${lipLineY}px)`
-
       const lipUp = get("lip-upper")
-      if (lipUp) lipUp.style.transform = `translateY(${lipUpY}px)`
+      if (jawEl) jawEl.style.opacity = svgOpacity
+      if (lipLo) lipLo.style.opacity = svgOpacity
+      if (lipLn) lipLn.style.opacity = svgOpacity
+      if (lipUp) lipUp.style.opacity = svgOpacity
+
+      if (mouthHalfRef.current) mouthHalfRef.current.style.opacity = mouthState === "half" ? "1" : "0"
+      if (mouthOpenRef.current) mouthOpenRef.current.style.opacity = mouthState === "open" ? "1" : "0"
 
       /* ── Nose micro-movement (tied to breathing) ── */
       const noseEl = get("nose")
@@ -534,6 +535,40 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
             />
           </div>
         ))}
+
+        {/* PNG mouth overlays — same 1696×2528 canvas, sit above lip SVGs (z:6) */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={mouthHalfRef}
+          src="/face/mouth-half.png"
+          alt=""
+          draggable={false}
+          style={{
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            zIndex: 6,
+            opacity: 0,
+            pointerEvents: "none",
+            userSelect: "none",
+            display: "block",
+          }}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={mouthOpenRef}
+          src="/face/mouth-open.png"
+          alt=""
+          draggable={false}
+          style={{
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            zIndex: 6,
+            opacity: 0,
+            pointerEvents: "none",
+            userSelect: "none",
+            display: "block",
+          }}
+        />
       </div>
     </div>
   )
