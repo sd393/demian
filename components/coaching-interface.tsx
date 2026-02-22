@@ -27,7 +27,7 @@ import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview, type DeckFeedback, type SlideFeedback } from "@/hooks/use-slide-review"
 import { FadeIn } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
-import { AudienceFace, type FaceState } from "@/components/audience-face"
+import { AudienceFace, type FaceState, type FaceEmotion, isValidFaceEmotion } from "@/components/audience-face"
 import {
   Dialog,
   DialogContent,
@@ -250,7 +250,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   /* ── Satisfied window + audience pulse ── */
   const [satisfiedWindow, setSatisfiedWindow] = useState(false)
-  const [pulseLabels, setPulseLabels] = useState<string[]>([])
+  const [pulseLabels, setPulseLabels] = useState<{ text: string; emotion: FaceEmotion }[]>([])
   const [pulseIndex, setPulseIndex] = useState(0)
   const prevStreaming = useRef(false)
 
@@ -282,9 +282,21 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
         return r.json()
       })
       .then(({ labels }) => {
-        const validLabels = Array.isArray(labels)
-          ? labels.filter((l: unknown): l is string => typeof l === "string")
-          : []
+        if (!Array.isArray(labels)) return
+        const validLabels = labels
+          .map((l: unknown) => {
+            // Handle {text, emotion} objects from updated API
+            if (l && typeof l === "object" && "text" in l) {
+              const obj = l as { text: unknown; emotion?: unknown }
+              const text = typeof obj.text === "string" ? obj.text : ""
+              const emotion: FaceEmotion = isValidFaceEmotion(obj.emotion) ? obj.emotion : "neutral"
+              return text ? { text, emotion } : null
+            }
+            // Backwards compat: plain string
+            if (typeof l === "string") return { text: l, emotion: "neutral" as FaceEmotion }
+            return null
+          })
+          .filter((l): l is { text: string; emotion: FaceEmotion } => l !== null)
         if (validLabels.length > 0) {
           setPulseLabels(validLabels)
           setPulseIndex(0)
@@ -307,7 +319,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       fetchPulseLabels()
 
       if (presentationModeRef.current) {
-        const lastAssistant = [...messages].reverse().find(m => m.role === "assistant" && m.content)
+        const lastAssistant = [...messagesRef.current].reverse().find(m => m.role === "assistant" && m.content)
         if (lastAssistant?.content) speakText(lastAssistant.content)
       }
 
@@ -403,21 +415,31 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   /* ── TTS functions (ElevenLabs with forced alignment) ── */
 
   const ttsSentencesRef = useRef<{ text: string; start: number; end: number }[]>([])
+  const ttsAbortRef = useRef<AbortController | null>(null)
 
   function speakText(text: string) {
     stopSpeaking()
     setIsTTSLoading(true)
 
+    // Abort any in-flight TTS fetch so its .then won't clobber state
+    ttsAbortRef.current?.abort()
+    const controller = new AbortController()
+    ttsAbortRef.current = controller
+
     fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+      signal: controller.signal,
     })
       .then(res => {
         if (!res.ok) throw new Error(`TTS failed: ${res.status}`)
         return res.json()
       })
       .then(({ audio, sentences }: { audio: string; sentences: { text: string; start: number; end: number }[] }) => {
+        // If aborted between fetch resolve and here, bail out
+        if (controller.signal.aborted) return
+
         ttsSentencesRef.current = sentences
         if (sentences.length > 0) setTtsCaption(sentences[0].text)
 
@@ -465,13 +487,16 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
           ttsAudioRef.current = null
         })
       })
-      .catch(() => {
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") return
         setIsTTSLoading(false)
         setTtsCaption("")
       })
   }
 
   function stopSpeaking() {
+    ttsAbortRef.current?.abort()
+    ttsAbortRef.current = null
     if (ttsAudioRef.current) {
       ttsAudioRef.current.pause()
       ttsAudioRef.current = null
@@ -565,7 +590,14 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   function handleSetupKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault()
-      handleStartAction("just-chat")
+      const context = buildContextMessage()
+      if (context) {
+        // Fields filled — send context and start chatting
+        sendMessage(context)
+      } else {
+        // No fields — enter presentation mode directly
+        setPresentationMode(true)
+      }
     }
   }
 
@@ -635,7 +667,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   /* ── Sub-label beneath face (active chat only) ── */
   const currentPulse = pulseLabels[pulseIndex] ?? null
-  const audienceLabel = currentPulse
+  const currentEmotion: FaceEmotion = currentPulse?.emotion ?? "neutral"
+  const audienceLabel = currentPulse?.text
     ?? researchMeta?.audienceSummary
     ?? (slideReview.deckSummary?.audienceAssumed ? `Presenting to ${slideReview.deckSummary.audienceAssumed}` : null)
     ?? "In the room with you"
@@ -695,8 +728,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                     {/* Topic */}
                     <div className="flex flex-col items-center">
                       <span>I&apos;m presenting</span>
-                      <span className="relative mt-1 inline-block max-w-full pb-1">
-                        <span ref={topicSizerRef} className="invisible whitespace-nowrap">{setupTopic.length > SETUP_EXAMPLES[sizerIndex].topic.length ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
+                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                        <span ref={topicSizerRef} className="invisible whitespace-nowrap px-1">{setupTopic ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
                         <input
                           type="text"
                           value={setupTopic}
@@ -729,8 +762,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                     {/* Audience */}
                     <div className="flex flex-col items-center">
                       <span>to</span>
-                      <span className="relative mt-1 inline-block max-w-full pb-1">
-                        <span ref={audienceSizerRef} className="invisible whitespace-nowrap">{setupAudience.length > SETUP_EXAMPLES[sizerIndex].audience.length ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
+                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                        <span ref={audienceSizerRef} className="invisible whitespace-nowrap px-1">{setupAudience ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
                         <input
                           type="text"
                           value={setupAudience}
@@ -763,8 +796,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                     {/* Goal */}
                     <div className="flex flex-col items-center">
                       <span>and I want to</span>
-                      <span className="relative mt-1 inline-block max-w-full pb-1">
-                        <span ref={goalSizerRef} className="invisible whitespace-nowrap">{setupGoal.length > SETUP_EXAMPLES[sizerIndex].goal.length ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
+                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                        <span ref={goalSizerRef} className="invisible whitespace-nowrap px-1">{setupGoal ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
                         <input
                           type="text"
                           value={setupGoal}
@@ -992,7 +1025,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
             </button>
 
             {/* Face */}
-            <AudienceFace state={faceState} analyserNode={recorder.analyserNode} size={280} />
+            <AudienceFace state={faceState} analyserNode={recorder.analyserNode} size={280} emotion={currentEmotion} />
 
             {/* Caption area — audience thoughts when idle, current sentence when speaking */}
             <div className="mt-4 flex h-12 items-center justify-center px-6">
