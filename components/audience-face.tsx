@@ -112,12 +112,14 @@ const THOUGHT_FIXATIONS: { x: number; y: number }[] = [
 
 /* ── Preload hook ── */
 
+const MOUTH_OVERLAYS = ["mouth-half", "mouth-open"] as const
+
 function useFacePreload(): boolean {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
     let loadCount = 0
-    const total = LAYERS.length
+    const total = LAYERS.length + MOUTH_OVERLAYS.length
 
     const onLoad = () => {
       loadCount++
@@ -127,8 +129,14 @@ function useFacePreload(): boolean {
     for (const layer of LAYERS) {
       const img = new Image()
       img.onload = onLoad
-      img.onerror = onLoad // count errors too so we don't hang
+      img.onerror = onLoad
       img.src = `/face/${layer}.svg`
+    }
+    for (const overlay of MOUTH_OVERLAYS) {
+      const img = new Image()
+      img.onload = onLoad
+      img.onerror = onLoad
+      img.src = `/face/${overlay}.svg`
     }
 
     // Fallback timeout — show face after 5s regardless
@@ -149,6 +157,10 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
   const breathRef = useRef<HTMLDivElement>(null)
   const layersRef = useRef<Map<LayerName, HTMLElement>>(new Map())
   const ready = useFacePreload()
+
+  // PNG mouth state overlays (same 1696×2528 canvas as SVG layers)
+  const mouthHalfRef = useRef<HTMLImageElement>(null)
+  const mouthOpenRef = useRef<HTMLImageElement>(null)
 
   // Emotion target ref — updated from prop, lerped in rAF
   const emotionTargetRef = useRef<EmotionOffsets>(EMOTION_MAP.neutral)
@@ -290,10 +302,10 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         if (el) el.style.transform = `translateY(${upperY}px)`
       }
 
-      // Lower eyelids — visible during blink or when emotion closes eyes (bored)
+      // Lower eyelids — visible during blink or heavy droop (bored)
       const lowerBlinkY = blink * h * 0.006
-      const lowerEmoY = emo.eyeOpenness < 0 ? Math.abs(emo.eyeOpenness) * h * 0.5 : 0
-      const showLower = blink > 0.15 || lowerEmoY > 0.1
+      const lowerEmoY = emo.eyeOpenness < -0.003 ? Math.abs(emo.eyeOpenness) * h * 0.5 : 0
+      const showLower = blink > 0.15 || lowerEmoY > 0.5
       for (const name of ["eye-left-lower", "eye-right-lower"] as const) {
         const el = get(name)
         if (el) {
@@ -432,9 +444,9 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         speakT = 0
         syllablePhase = 0
         syllablePause = false
-        // Gentle close
-        smoothVol *= 0.9
-        vol = smoothVol
+        // Snap to zero — no lingering mouth movement after speaking stops
+        smoothVol = 0
+        vol = 0
       }
 
       // Thinking lip tension — slight upward pull (pressed-lips concentration)
@@ -444,24 +456,20 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         thinkingLipTension *= 0.95
       }
 
-      // Apply volume with slight asymmetry (jaw leads, lips follow)
-      // + emotion offsets + thinking lip tension
-      const jawY = vol * h * 0.02 + emo.jawY * h
-      const lipLowY = vol * h * 0.015
-      const lipLineY = vol * h * 0.006 + emo.lipLineY * h - thinkingLipTension * h * 0.002
-      const lipUpY = -(vol * h * 0.003) + emo.lipUpperY * h - thinkingLipTension * h * 0.001
-
-      const jawEl = get("jaw")
-      if (jawEl) jawEl.style.transform = `translateY(${jawY}px)`
+      // Mouth state — SVG lip layers for closed; mouth-half/mouth-open SVGs for speaking
+      // Jaw always stays visible
+      const mouthState = vol >= 0.55 ? "open" : vol >= 0.18 ? "half" : "closed"
+      const lipSvgOpacity = mouthState === "closed" ? "1" : "0"
 
       const lipLo = get("lip-lower")
-      if (lipLo) lipLo.style.transform = `translateY(${lipLowY}px)`
-
       const lipLn = get("lip-line")
-      if (lipLn) lipLn.style.transform = `translateY(${lipLineY}px)`
-
       const lipUp = get("lip-upper")
-      if (lipUp) lipUp.style.transform = `translateY(${lipUpY}px)`
+      if (lipLo) lipLo.style.opacity = lipSvgOpacity
+      if (lipLn) lipLn.style.opacity = lipSvgOpacity
+      if (lipUp) lipUp.style.opacity = lipSvgOpacity
+
+      if (mouthHalfRef.current) mouthHalfRef.current.style.opacity = mouthState === "half" ? "1" : "0"
+      if (mouthOpenRef.current) mouthOpenRef.current.style.opacity = mouthState === "open" ? "1" : "0"
 
       /* ── Nose micro-movement (tied to breathing) ── */
       const noseEl = get("nose")
@@ -483,7 +491,8 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         position: "relative",
         flexShrink: 0,
         opacity: ready ? 1 : 0,
-        transition: "opacity 0.5s ease-out",
+        transform: ready ? "scale(1) translateY(0)" : "scale(0.97) translateY(6px)",
+        transition: "opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1), transform 0.9s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       aria-label="Vera, your AI coach"
       role="img"
@@ -534,6 +543,40 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
             />
           </div>
         ))}
+
+        {/* Mouth overlays — same 1696×2528 canvas, sit above lip SVGs but below eyes */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={mouthHalfRef}
+          src="/face/mouth-half.svg"
+          alt=""
+          draggable={false}
+          style={{
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            zIndex: 7,
+            opacity: 0,
+            pointerEvents: "none",
+            userSelect: "none",
+            display: "block",
+          }}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={mouthOpenRef}
+          src="/face/mouth-open.svg"
+          alt=""
+          draggable={false}
+          style={{
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            zIndex: 7,
+            opacity: 0,
+            pointerEvents: "none",
+            userSelect: "none",
+            display: "block",
+          }}
+        />
       </div>
     </div>
   )

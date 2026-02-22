@@ -15,6 +15,9 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   updateProfile,
   GoogleAuthProvider,
   type User,
@@ -31,6 +34,7 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   refreshSubscription: () => Promise<void>
 }
 
@@ -116,6 +120,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await sendPasswordResetEmail(auth, email)
   }
 
+  async function changePassword(currentPassword: string, newPassword: string) {
+    if (!auth.currentUser || !auth.currentUser.email) {
+      throw new Error("No authenticated user")
+    }
+    const credential = EmailAuthProvider.credential(
+      auth.currentUser.email,
+      currentPassword,
+    )
+    await reauthenticateWithCredential(auth.currentUser, credential)
+    await updatePassword(auth.currentUser, newPassword)
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -128,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithGoogle,
         signOut,
         resetPassword,
+        changePassword,
         refreshSubscription,
       }}
     >
