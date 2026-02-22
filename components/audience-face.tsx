@@ -112,12 +112,14 @@ const THOUGHT_FIXATIONS: { x: number; y: number }[] = [
 
 /* ── Preload hook ── */
 
+const MOUTH_OVERLAYS = ["mouth-half", "mouth-open"] as const
+
 function useFacePreload(): boolean {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
     let loadCount = 0
-    const total = LAYERS.length
+    const total = LAYERS.length + MOUTH_OVERLAYS.length
 
     const onLoad = () => {
       loadCount++
@@ -127,8 +129,14 @@ function useFacePreload(): boolean {
     for (const layer of LAYERS) {
       const img = new Image()
       img.onload = onLoad
-      img.onerror = onLoad // count errors too so we don't hang
+      img.onerror = onLoad
       img.src = `/face/${layer}.svg`
+    }
+    for (const overlay of MOUTH_OVERLAYS) {
+      const img = new Image()
+      img.onload = onLoad
+      img.onerror = onLoad
+      img.src = `/face/${overlay}.svg`
     }
 
     // Fallback timeout — show face after 5s regardless
@@ -436,9 +444,9 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         speakT = 0
         syllablePhase = 0
         syllablePause = false
-        // Gentle close
-        smoothVol *= 0.9
-        vol = smoothVol
+        // Snap to zero — no lingering mouth movement after speaking stops
+        smoothVol = 0
+        vol = 0
       }
 
       // Thinking lip tension — slight upward pull (pressed-lips concentration)
@@ -448,18 +456,17 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         thinkingLipTension *= 0.95
       }
 
-      // Mouth state — SVG layers handle closed/neutral; PNGs handle half-open and open
+      // Mouth state — SVG lip layers for closed; mouth-half/mouth-open SVGs for speaking
+      // Jaw always stays visible
       const mouthState = vol >= 0.55 ? "open" : vol >= 0.18 ? "half" : "closed"
-      const svgOpacity = mouthState === "closed" ? "1" : "0"
+      const lipSvgOpacity = mouthState === "closed" ? "1" : "0"
 
-      const jawEl = get("jaw")
       const lipLo = get("lip-lower")
       const lipLn = get("lip-line")
       const lipUp = get("lip-upper")
-      if (jawEl) jawEl.style.opacity = svgOpacity
-      if (lipLo) lipLo.style.opacity = svgOpacity
-      if (lipLn) lipLn.style.opacity = svgOpacity
-      if (lipUp) lipUp.style.opacity = svgOpacity
+      if (lipLo) lipLo.style.opacity = lipSvgOpacity
+      if (lipLn) lipLn.style.opacity = lipSvgOpacity
+      if (lipUp) lipUp.style.opacity = lipSvgOpacity
 
       if (mouthHalfRef.current) mouthHalfRef.current.style.opacity = mouthState === "half" ? "1" : "0"
       if (mouthOpenRef.current) mouthOpenRef.current.style.opacity = mouthState === "open" ? "1" : "0"
@@ -484,7 +491,8 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         position: "relative",
         flexShrink: 0,
         opacity: ready ? 1 : 0,
-        transition: "opacity 0.5s ease-out",
+        transform: ready ? "scale(1) translateY(0)" : "scale(0.97) translateY(6px)",
+        transition: "opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1), transform 0.9s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       aria-label="Vera, your AI coach"
       role="img"
@@ -536,17 +544,17 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
           </div>
         ))}
 
-        {/* PNG mouth overlays — same 1696×2528 canvas, sit above lip SVGs (z:6) */}
+        {/* Mouth overlays — same 1696×2528 canvas, sit above lip SVGs but below eyes */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={mouthHalfRef}
-          src="/face/mouth-half.png"
+          src="/face/mouth-half.svg"
           alt=""
           draggable={false}
           style={{
             position: "absolute", top: 0, left: 0,
             width: "100%", height: "100%",
-            zIndex: 6,
+            zIndex: 7,
             opacity: 0,
             pointerEvents: "none",
             userSelect: "none",
@@ -556,13 +564,13 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={mouthOpenRef}
-          src="/face/mouth-open.png"
+          src="/face/mouth-open.svg"
           alt=""
           draggable={false}
           style={{
             position: "absolute", top: 0, left: 0,
             width: "100%", height: "100%",
-            zIndex: 6,
+            zIndex: 7,
             opacity: 0,
             pointerEvents: "none",
             userSelect: "none",

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useEffect, type FormEvent } from "react"
+import React, { useState, useRef, useEffect, useLayoutEffect, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
 import {
@@ -177,6 +177,41 @@ const FOLLOW_UPS_LATER = [
   { label: "Polish my closing",          message: "Help me end with a memorable, actionable closing statement." },
 ]
 
+/* ── Thinking labels ── */
+
+const LABELS_COMPRESSING = [
+  "Listening closely...",
+  "Tuning in...",
+  "Catching every word...",
+]
+const LABELS_TRANSCRIBING = [
+  "Taking it all in...",
+  "Processing what you said...",
+  "Absorbing your points...",
+]
+const LABELS_RESEARCHING = [
+  "Getting to know your audience...",
+  "Doing some homework...",
+  "Learning about who you're talking to...",
+]
+const LABELS_STREAMING = [
+  "Gathering thoughts...",
+  "Thinking this through...",
+  "Considering what to say...",
+  "Mulling it over...",
+]
+const LABELS_TTS = [
+  "Finding the right words...",
+  "Putting thoughts together...",
+  "Almost ready...",
+]
+const LABELS_DEFAULT = [
+  "Hmm, let me think...",
+  "One moment...",
+  "Processing...",
+  "Thinking about that...",
+]
+
 /* ── Props ── */
 
 interface CoachingInterfaceProps {
@@ -240,12 +275,14 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const goalSizerRef = useRef<HTMLSpanElement>(null)
   const [blankWidths, setBlankWidths] = useState({ topic: 0, audience: 0, goal: 0 })
 
-  useEffect(() => {
+  const hasMeasuredRef = useRef(false)
+  useLayoutEffect(() => {
     setBlankWidths({
       topic: topicSizerRef.current?.offsetWidth ?? 0,
       audience: audienceSizerRef.current?.offsetWidth ?? 0,
       goal: goalSizerRef.current?.offsetWidth ?? 0,
     })
+    hasMeasuredRef.current = true
   }, [setupTopic, setupAudience, setupGoal, sizerIndex])
 
   /* ── Satisfied window + audience pulse ── */
@@ -361,12 +398,25 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     : satisfiedWindow ? "satisfied"
     : "idle"
 
-  const thinkingLabel = isCompressing ? "Listening closely..."
-    : isTranscribing ? "Taking it all in..."
-    : isResearching ? "Getting to know your audience..."
-    : (presentationMode && isStreaming) ? "Gathering thoughts..."
-    : isTTSLoading ? "Finding the right words..."
-    : "Hmm, let me think..."
+  // Pick a label once per thinking phase, not per render
+  const thinkingPhaseKey = isCompressing ? "compress"
+    : isTranscribing ? "transcribe"
+    : isResearching ? "research"
+    : (presentationMode && isStreaming) ? "stream"
+    : isTTSLoading ? "tts"
+    : isProcessingHeld ? "default"
+    : ""
+  const thinkingLabelRef = useRef({ key: "", label: "" })
+  if (thinkingPhaseKey && thinkingPhaseKey !== thinkingLabelRef.current.key) {
+    const pool = isCompressing ? LABELS_COMPRESSING
+      : isTranscribing ? LABELS_TRANSCRIBING
+      : isResearching ? LABELS_RESEARCHING
+      : (presentationMode && isStreaming) ? LABELS_STREAMING
+      : isTTSLoading ? LABELS_TTS
+      : LABELS_DEFAULT
+    thinkingLabelRef.current = { key: thinkingPhaseKey, label: pool[Math.floor(Math.random() * pool.length)] }
+  }
+  const thinkingLabel = thinkingLabelRef.current.label || "Thinking..."
 
   const exchangeCount = messages.filter((m) => m.role === "user").length
   const lastMessage = messages[messages.length - 1]
@@ -537,8 +587,12 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     if (pdfInputRef.current) pdfInputRef.current.value = ""
   }
 
+  const continueRef = useRef<HTMLButtonElement>(null)
+
   async function handleStartRecording() {
     if (isTrialMode) { router.push("/login"); return }
+    // Hide button instantly via DOM — no waiting for React render cycle
+    if (continueRef.current) continueRef.current.style.visibility = "hidden"
     const err = await recorder.startRecording()
     if (err) {
       const msgs: Record<string, string> = {
@@ -553,7 +607,13 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   async function handleStopRecording() {
     const file = await recorder.stopRecording()
-    if (file) uploadFile(file)
+    if (file) {
+      // Bridge the gap between recording stop and upload start
+      // so faceState doesn't briefly flicker to "idle"
+      setIsProcessingHeld(true)
+      clearTimeout(holdTimerRef.current)
+      uploadFile(file)
+    }
   }
 
   function buildContextMessage(): string | null {
@@ -753,8 +813,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                         )}
                         <motion.span
                           className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                          initial={false}
                           animate={{ width: blankWidths.topic + 20 }}
-                          transition={{ duration: 0.35, ease: "easeInOut" }}
+                          transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
                         />
                       </span>
                     </div>
@@ -787,8 +848,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                         )}
                         <motion.span
                           className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                          initial={false}
                           animate={{ width: blankWidths.audience + 20 }}
-                          transition={{ duration: 0.35, ease: "easeInOut" }}
+                          transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
                         />
                       </span>
                     </div>
@@ -821,8 +883,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                         )}
                         <motion.span
                           className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                          initial={false}
                           animate={{ width: blankWidths.goal + 20 }}
-                          transition={{ duration: 0.35, ease: "easeInOut" }}
+                          transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
                         />
                       </span>
                     </div>
@@ -1066,12 +1129,13 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
               </AnimatePresence>
             </div>
 
-            {/* Record controls */}
-            <div className="mt-8 flex items-center justify-center">
-              {(faceState === "idle" || faceState === "satisfied") && (
+            {/* Record controls — fixed height prevents layout shift */}
+            <div className="mt-8 flex h-10 items-center justify-center">
+              {(faceState === "idle" || faceState === "satisfied") && !isBusy && (
                 <button
+                  ref={continueRef}
                   type="button"
-                  onClick={() => { setSatisfiedWindow(false); handleStartRecording() }}
+                  onClick={handleStartRecording}
                   className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
                 >
                   <span className="h-2 w-2 rounded-full bg-red-500" />
