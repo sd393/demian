@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { requireAuth } from '@/backend/auth'
 import { stripe } from '@/backend/stripe'
 import { ensureUserDoc } from '@/backend/subscription'
+import { getOrigin } from '@/backend/request-utils'
 
 export async function handleBillingPortal(request: NextRequest) {
   const auth = await requireAuth(request)
@@ -34,10 +35,4 @@ export async function handleBillingPortal(request: NextRequest) {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
-}
-
-function getOrigin(request: NextRequest): string {
-  const host = request.headers.get('host')
-  const proto = request.headers.get('x-forwarded-proto') ?? 'https'
-  return `${proto}://${host}`
 }

@@ -11,9 +11,9 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 const WHISPER_MAX_SIZE = 25 * 1024 * 1024 // 25MB
 const MAX_CHUNK_DURATION = 1400 // seconds — gpt-4o-mini-transcribe limit is 1500s
 
-function tempPath(ext: string): string {
+export function tempPath(ext: string, prefix = 'vera'): string {
   const id = crypto.randomBytes(8).toString('hex')
-  return path.join(os.tmpdir(), `vera-${id}${ext}`)
+  return path.join(os.tmpdir(), `${prefix}-${id}${ext}`)
 }
 
 /**
@@ -103,17 +103,6 @@ export async function splitAudioIfNeeded(
   }
 
   return chunkPaths
-}
-
-/**
- * Write an uploaded File/Blob to a temp path on disk.
- */
-export async function writeUploadToTmp(file: File): Promise<string> {
-  const ext = path.extname(file.name) || '.bin'
-  const tmpFile = tempPath(ext)
-  const buffer = Buffer.from(await file.arrayBuffer())
-  await fs.writeFile(tmpFile, buffer)
-  return tmpFile
 }
 
 /**

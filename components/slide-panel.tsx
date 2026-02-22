@@ -12,17 +12,8 @@ import {
 } from "lucide-react"
 import { DeckSummaryCard } from "@/components/deck-summary-card"
 import { SlideFeedbackCard } from "@/components/slide-feedback-card"
-import type { UseSlideReviewReturn, AnalysisStep } from "@/hooks/use-slide-review"
-
-const STEP_LABELS: Record<AnalysisStep, string> = {
-  idle: "Ready",
-  uploading: "Uploading...",
-  downloading: "Processing...",
-  rendering: "Extracting slides...",
-  analyzing: "Analyzing slides...",
-  done: "Done",
-  error: "Error",
-}
+import { STEP_LABELS } from "@/lib/constants"
+import type { UseSlideReviewReturn } from "@/hooks/use-slide-review"
 
 const STEP_ORDER: AnalysisStep[] = [
   "uploading",

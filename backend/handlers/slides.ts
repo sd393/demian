@@ -12,6 +12,7 @@ import {
   buildFullDeckUserMessage,
 } from '@/backend/slides-prompt'
 import { downloadToTmp, cleanupTempFiles } from '@/backend/audio'
+import { SSE_HEADERS } from '@/backend/request-utils'
 
 function sseEvent(type: string, data: unknown): string {
   return `data: ${JSON.stringify({ type, data })}\n\n`
@@ -139,10 +140,6 @@ export async function handleSlidesAnalyze(request: NextRequest) {
   })
 
   return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
+    headers: SSE_HEADERS,
   })
 }
