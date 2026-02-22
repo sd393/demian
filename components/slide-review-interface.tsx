@@ -14,21 +14,11 @@ import {
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
 import { toast } from "sonner"
 import { FadeIn } from "@/components/motion"
-import { useSlideReview, type AnalysisStep } from "@/hooks/use-slide-review"
+import { useSlideReview } from "@/hooks/use-slide-review"
+import { STEP_LABELS } from "@/lib/constants"
 import { SlideNavigator } from "@/components/slide-navigator"
 import { SlideFeedbackCard } from "@/components/slide-feedback-card"
 import { DeckSummaryCard } from "@/components/deck-summary-card"
-
-const STEP_LABELS: Record<AnalysisStep, string> = {
-  idle: "Ready",
-  uploading: "Uploading to secure storage...",
-  downloading: "Downloading for processing...",
-  rendering: "Extracting slide content...",
-  analyzing: "Analyzing slides...",
-  summarizing: "Writing summary...",
-  done: "Analysis complete",
-  error: "Error",
-}
 
 interface SlideReviewInterfaceProps {
   authToken?: string | null

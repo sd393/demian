@@ -3,7 +3,14 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(file:*)",
-      "Bash(grep audience-face:*)"
+      "Bash(grep audience-face:*)",
+      "Bash(head:*)",
+      "Bash(grep:*)",
+      "Bash(tail:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(npx next:*)",
+      "Bash(pnpm test:run:*)"
     ]
   }
 }

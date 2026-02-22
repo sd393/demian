@@ -15,18 +15,20 @@ import {
   Square,
   X,
   ArrowRight,
-  Search,
-  ChevronDown,
   Smile,
 } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "sonner"
 
-import { useChat, type ResearchMeta, type Attachment } from "@/hooks/use-chat"
+import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
-import { useSlideReview, type DeckFeedback, type SlideFeedback } from "@/hooks/use-slide-review"
+import { useSlideReview } from "@/hooks/use-slide-review"
+import { formatFileSize, formatElapsed, formatSlideContextForChat } from "@/lib/format-utils"
+import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER } from "@/lib/constants"
 import { FadeIn } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
+import { AudioWaveform } from "@/components/audio-waveform"
+import { ResearchCard } from "@/components/research-card"
 import { AudienceFace, type FaceState, type FaceEmotion, isValidFaceEmotion } from "@/components/audience-face"
 import {
   Dialog,
@@ -36,124 +38,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-
-/* ── Utilities ── */
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60).toString().padStart(2, "0")
-  const s = (seconds % 60).toString().padStart(2, "0")
-  return `${m}:${s}`
-}
-
-function formatSlideContextForChat(deck: DeckFeedback, feedbacks: SlideFeedback[]): string {
-  const lines: string[] = [
-    `Deck: "${deck.deckTitle}"`,
-    `Overall Score: ${deck.overallRating}/100`,
-    `Audience Assumed: ${deck.audienceAssumed}`,
-    ``,
-    `Executive Summary:`,
-    deck.executiveSummary,
-    ``,
-    `Top Priorities:`,
-    ...deck.topPriorities.map((p, i) => `${i + 1}. ${p}`),
-    ``,
-    `Slide-by-Slide Feedback:`,
-  ]
-  for (const f of feedbacks) {
-    const ratingLabel = f.rating === "needs-work" ? "NEEDS WORK" : f.rating.toUpperCase()
-    lines.push(``)
-    lines.push(`Slide ${f.slideNumber}: "${f.title}" — ${ratingLabel}`)
-    lines.push(`  ${f.headline}`)
-    if (f.quote) lines.push(`  (Quote from slide: "${f.quote}")`)
-    if (f.strengths.length > 0) {
-      lines.push(`  Strengths:`)
-      f.strengths.forEach((s) => lines.push(`    - ${s}`))
-    }
-    if (f.improvements.length > 0) {
-      lines.push(`  Improvements:`)
-      f.improvements.forEach((s) => lines.push(`    - ${s}`))
-    }
-  }
-  return lines.join("\n")
-}
-
-/* ── Waveform ── */
-
-function AudioWaveform({ analyser }: { analyser: AnalyserNode | null }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!analyser || !containerRef.current) return
-    const a = analyser
-    const bars = Array.from(containerRef.current.querySelectorAll("[data-bar]")) as HTMLElement[]
-    const dataArray = new Uint8Array(a.frequencyBinCount)
-    let rafId: number
-    function update() {
-      a.getByteFrequencyData(dataArray)
-      const step = Math.max(1, Math.floor(dataArray.length / bars.length))
-      bars.forEach((bar, i) => {
-        const value = dataArray[i * step] / 255
-        bar.style.height = `${Math.max(3, Math.round(value * 22))}px`
-      })
-      rafId = requestAnimationFrame(update)
-    }
-    rafId = requestAnimationFrame(update)
-    return () => cancelAnimationFrame(rafId)
-  }, [analyser])
-
-  return (
-    <div ref={containerRef} className="flex w-[90%] mx-auto items-center justify-between overflow-hidden">
-      {Array.from({ length: 56 }).map((_, i) => (
-        <div key={i} data-bar="" className="w-0.5 flex-shrink-0 rounded-full bg-primary/70" style={{ height: "3px" }} />
-      ))}
-    </div>
-  )
-}
-
-/* ── Research card ── */
-
-function ResearchCard({ meta }: { meta: ResearchMeta }) {
-  const [isOpen, setIsOpen] = useState(false)
-  return (
-    <div className="rounded-lg border border-border/60 bg-muted/30">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm"
-      >
-        <Search className="h-3.5 w-3.5 text-primary/60" />
-        <span className="font-medium text-white/80">Audience research completed</span>
-        <span className="text-white/50">— {meta.searchTerms.length} searches</span>
-        <ChevronDown className={`ml-auto h-3.5 w-3.5 text-white/50 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-      </button>
-      {isOpen && (
-        <div className="border-t border-border/60 px-4 py-3 text-sm">
-          <p className="mb-2 font-medium text-white/70">{meta.audienceSummary}</p>
-          <div className="mb-3">
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/50">Search terms</p>
-            <div className="flex flex-wrap gap-1.5">
-              {meta.searchTerms.map((term) => (
-                <span key={term} className="rounded-md border border-border/40 bg-background px-2 py-0.5 text-xs text-white/70">{term}</span>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/50">Briefing</p>
-            <div className="prose prose-sm max-w-none text-xs leading-relaxed text-white/70 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_strong]:text-white [&_strong]:font-semibold">
-              <ReactMarkdown>{meta.briefing}</ReactMarkdown>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 /* ── Constants ── */
 
@@ -166,16 +50,6 @@ const SETUP_EXAMPLES = [
 ]
 
 
-const FOLLOW_UPS_EARLY = [
-  { label: "Define my target audience", message: "Help me clearly define who I'm presenting to — their role, expectations, and what they care about." },
-  { label: "Clarify my key message",    message: "What should be the single most important takeaway my audience remembers?" },
-]
-
-const FOLLOW_UPS_LATER = [
-  { label: "Strengthen my opening",      message: "Help me craft a stronger opening that grabs attention in the first 30 seconds." },
-  { label: "Challenge my weakest point", message: "Play devil's advocate — where would a skeptical audience push back on my argument?" },
-  { label: "Polish my closing",          message: "Help me end with a memorable, actionable closing statement." },
-]
 
 /* ── Thinking labels ── */
 

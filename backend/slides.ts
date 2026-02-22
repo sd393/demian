@@ -1,8 +1,6 @@
 import fs from 'fs/promises'
-import path from 'path'
-import os from 'os'
-import crypto from 'crypto'
 import { extractText } from 'unpdf'
+import { tempPath } from '@/backend/audio'
 
 export interface SlideText {
   slideNumber: number
@@ -31,8 +29,7 @@ export interface DeckFeedback {
 export const MAX_SLIDES = 30
 
 export function slidesTempPath(ext: string): string {
-  const id = crypto.randomBytes(8).toString('hex')
-  return path.join(os.tmpdir(), `vera-slides-${id}${ext}`)
+  return tempPath(ext, 'vera-slides')
 }
 
 /**

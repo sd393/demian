@@ -9,6 +9,7 @@ import {
 } from '@/backend/trial-limit'
 import { verifyAuth } from '@/backend/auth'
 import { getUserPlan } from '@/backend/subscription'
+import { SSE_HEADERS } from '@/backend/request-utils'
 
 export async function handleChat(request: NextRequest) {
   const ip = getClientIp(request)
@@ -127,11 +128,7 @@ export async function handleChat(request: NextRequest) {
       },
     })
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    }
+    const headers: Record<string, string> = { ...SSE_HEADERS }
 
     if (trialRemaining !== undefined) {
       headers['X-Trial-Remaining'] = String(trialRemaining)

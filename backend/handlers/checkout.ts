@@ -3,6 +3,7 @@ import { requireAuth } from '@/backend/auth'
 import { checkRateLimit } from '@/backend/rate-limit'
 import { stripe } from '@/backend/stripe'
 import { createOrGetStripeCustomer, getUserPlan } from '@/backend/subscription'
+import { getOrigin } from '@/backend/request-utils'
 
 export async function handleCheckout(request: NextRequest) {
   const auth = await requireAuth(request)
@@ -66,10 +67,4 @@ export async function handleCheckout(request: NextRequest) {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
-}
-
-function getOrigin(request: NextRequest): string {
-  const host = request.headers.get('host')
-  const proto = request.headers.get('x-forwarded-proto') ?? 'https'
-  return `${proto}://${host}`
 }
