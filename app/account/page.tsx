@@ -17,6 +17,7 @@ export default function AccountPage() {
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState(false)
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
 
   useEffect(() => {
     if (!loading && !user && !isSigningOut.current) {
@@ -66,6 +67,7 @@ export default function AccountPage() {
     try {
       await changePassword(currentPassword, newPassword)
       setPasswordSuccess(true)
+      setShowPasswordForm(false)
       setCurrentPassword("")
       setNewPassword("")
       setConfirmPassword("")
@@ -201,84 +203,117 @@ export default function AccountPage() {
               </div>
             </div>
 
-            {passwordError && (
-              <div className="mt-6 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {passwordError}
-              </div>
-            )}
-
             {passwordSuccess && (
               <div className="mt-6 rounded-lg bg-primary/10 px-4 py-3 text-sm text-primary">
                 Password updated successfully.
               </div>
             )}
 
-            <form onSubmit={handleChangePassword} className="mt-6 flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="current-password"
-                  className="text-sm font-medium text-foreground"
+            {!showPasswordForm ? (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordForm(true)
+                    setPasswordSuccess(false)
+                  }}
+                  className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
                 >
-                  Current Password
-                </label>
-                <input
-                  id="current-password"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required
-                  disabled={passwordLoading}
-                  className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30 disabled:opacity-50"
-                />
+                  Update Password
+                </button>
               </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-password"
-                  className="text-sm font-medium text-foreground"
-                >
-                  New Password
-                </label>
-                <input
-                  id="new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  disabled={passwordLoading}
-                  className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30 disabled:opacity-50"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="confirm-password"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Confirm New Password
-                </label>
-                <input
-                  id="confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  disabled={passwordLoading}
-                  className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30 disabled:opacity-50"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={passwordLoading}
-                className="mt-2 flex items-center justify-center gap-2 self-start rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
-              >
-                {passwordLoading && (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+            ) : (
+              <>
+                {passwordError && (
+                  <div className="mt-6 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    {passwordError}
+                  </div>
                 )}
-                Update Password
-              </button>
-            </form>
+
+                <form onSubmit={handleChangePassword} className="mt-6 flex flex-col gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label
+                      htmlFor="current-password"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Current Password
+                    </label>
+                    <input
+                      id="current-password"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      required
+                      disabled={passwordLoading}
+                      className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label
+                      htmlFor="new-password"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      New Password
+                    </label>
+                    <input
+                      id="new-password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      disabled={passwordLoading}
+                      className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label
+                      htmlFor="confirm-password"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Confirm New Password
+                    </label>
+                    <input
+                      id="confirm-password"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                      disabled={passwordLoading}
+                      className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={passwordLoading}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                    >
+                      {passwordLoading && (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                      )}
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      disabled={passwordLoading}
+                      onClick={() => {
+                        setShowPasswordForm(false)
+                        setPasswordError("")
+                        setCurrentPassword("")
+                        setNewPassword("")
+                        setConfirmPassword("")
+                      }}
+                      className="rounded-lg border border-border bg-background px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
         )}
 

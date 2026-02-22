@@ -3,14 +3,11 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(file:*)",
-      "Bash(grep audience-face:*)",
-      "Bash(head:*)",
-      "Bash(grep:*)",
-      "Bash(tail:*)",
-      "Bash(pnpm build:*)",
-      "Bash(pnpm lint:*)",
-      "Bash(npx next:*)",
-      "Bash(pnpm test:run:*)"
+      "Bash(git push:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash pop:*)"
     ]
   }
 }
