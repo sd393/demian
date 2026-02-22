@@ -728,8 +728,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                     {/* Topic */}
                     <div className="flex flex-col items-center">
                       <span>I&apos;m presenting</span>
-                      <span className="relative mt-1 inline-block max-w-full pb-1">
-                        <span ref={topicSizerRef} className="invisible whitespace-nowrap">{setupTopic ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
+                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                        <span ref={topicSizerRef} className="invisible whitespace-nowrap px-1">{setupTopic ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
                         <input
                           type="text"
                           value={setupTopic}
@@ -762,8 +762,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                     {/* Audience */}
                     <div className="flex flex-col items-center">
                       <span>to</span>
-                      <span className="relative mt-1 inline-block max-w-full pb-1">
-                        <span ref={audienceSizerRef} className="invisible whitespace-nowrap">{setupAudience ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
+                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                        <span ref={audienceSizerRef} className="invisible whitespace-nowrap px-1">{setupAudience ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
                         <input
                           type="text"
                           value={setupAudience}
@@ -796,8 +796,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                     {/* Goal */}
                     <div className="flex flex-col items-center">
                       <span>and I want to</span>
-                      <span className="relative mt-1 inline-block max-w-full pb-1">
-                        <span ref={goalSizerRef} className="invisible whitespace-nowrap">{setupGoal ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
+                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                        <span ref={goalSizerRef} className="invisible whitespace-nowrap px-1">{setupGoal ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
                         <input
                           type="text"
                           value={setupGoal}

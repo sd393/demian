@@ -294,10 +294,10 @@ export function AudienceFace({ state, analyserNode, size = 200, emotion = "neutr
         if (el) el.style.transform = `translateY(${upperY}px)`
       }
 
-      // Lower eyelids — visible during blink or when emotion closes eyes (bored)
+      // Lower eyelids — visible during blink or heavy droop (bored)
       const lowerBlinkY = blink * h * 0.006
-      const lowerEmoY = emo.eyeOpenness < 0 ? Math.abs(emo.eyeOpenness) * h * 0.5 : 0
-      const showLower = blink > 0.15 || lowerEmoY > 0.1
+      const lowerEmoY = emo.eyeOpenness < -0.003 ? Math.abs(emo.eyeOpenness) * h * 0.5 : 0
+      const showLower = blink > 0.15 || lowerEmoY > 0.5
       for (const name of ["eye-left-lower", "eye-right-lower"] as const) {
         const el = get(name)
         if (el) {
