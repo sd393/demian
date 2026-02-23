@@ -7,7 +7,8 @@
       "mcp__ide__getDiagnostics",
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
-      "Bash(git stash pop:*)"
+      "Bash(git stash pop:*)",
+      "Bash(tail:*)"
     ]
   }
 }

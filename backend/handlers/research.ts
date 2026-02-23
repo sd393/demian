@@ -25,13 +25,14 @@ export async function handleResearch(request: NextRequest) {
       )
     }
 
-    const { transcript, audienceDescription } = parsed.data
+    const { transcript, audienceDescription, topic } = parsed.data
 
     // Stage 1: Generate search terms
     console.log('[research] Stage 1: generating search terms...')
     const { searchTerms, audienceSummary } = await generateSearchTerms(
-      sanitizeInput(transcript),
-      sanitizeInput(audienceDescription)
+      sanitizeInput(audienceDescription),
+      transcript ? sanitizeInput(transcript) : undefined,
+      topic ? sanitizeInput(topic) : undefined,
     )
     console.log('[research] Stage 1 complete:', { audienceSummary, searchTerms })
 

@@ -24,12 +24,14 @@ import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
 import { formatFileSize, formatElapsed, formatSlideContextForChat } from "@/lib/format-utils"
-import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER } from "@/lib/constants"
+import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER, FOLLOW_UPS_DEFINE, FOLLOW_UPS_PRESENT, FOLLOW_UPS_QA } from "@/lib/constants"
 import { FadeIn } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
 import { AudioWaveform } from "@/components/audio-waveform"
 import { ResearchCard } from "@/components/research-card"
 import { AudienceFace, type FaceState, type FaceEmotion, isValidFaceEmotion } from "@/components/audience-face"
+import { StageIndicator } from "@/components/stages/stage-indicator"
+import type { SetupContext } from "@/lib/coaching-stages"
 import {
   Dialog,
   DialogContent,
@@ -100,7 +102,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const {
     messages, researchMeta, isCompressing, isTranscribing, isResearching, isStreaming,
     error, trialMessagesRemaining, trialLimitReached, freeLimitReached,
+    stage, transcript,
     sendMessage, uploadFile, addMessage, setSlideContext, clearError,
+    startPresentation, finishPresentation, skipToFeedback, startResearchEarly,
   } = useChat(authToken)
 
   const recorder = useRecorder()
@@ -112,6 +116,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const [setupTopic, setSetupTopic] = useState("")
   const [setupAudience, setSetupAudience] = useState("")
   const [setupGoal, setSetupGoal] = useState("")
+  const [setupAdditional, setSetupAdditional] = useState("")
+  const [showAdditional, setShowAdditional] = useState(false)
+  const [setupPhase, setSetupPhase] = useState<"fields" | "researching" | "review" | "mode-select">("fields")
   const [showTrialDialog, setShowTrialDialog] = useState(false)
   const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
   const [presentationMode, setPresentationMode] = useState(false)
@@ -294,8 +301,35 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   const exchangeCount = messages.filter((m) => m.role === "user").length
   const lastMessage = messages[messages.length - 1]
-  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && lastMessage.content.length > 0
-  const followUps = exchangeCount <= 1 ? FOLLOW_UPS_EARLY : FOLLOW_UPS_LATER
+  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && lastMessage.content.length > 0 && stage !== 'feedback'
+
+  const followUps = stage === 'define' ? FOLLOW_UPS_DEFINE
+    : stage === 'present' ? FOLLOW_UPS_PRESENT
+    : stage === 'qa' ? FOLLOW_UPS_QA
+    : stage === 'followup' ? FOLLOW_UPS_LATER
+    : exchangeCount <= 1 ? FOLLOW_UPS_EARLY
+    : FOLLOW_UPS_LATER
+
+  // Track the first feedback message ID for special visual treatment
+  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
+  const prevStageRef = useRef(stage)
+  useEffect(() => {
+    if (prevStageRef.current !== 'feedback' && stage === 'feedback') {
+      // The next assistant message will be the feedback
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.role === 'assistant') {
+        setFeedbackMessageId(lastMsg.id)
+      }
+    }
+    // When transitioning to feedback and streaming starts, catch the new message
+    if (stage === 'feedback' && !feedbackMessageId) {
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.role === 'assistant' && lastMsg.content === '') {
+        setFeedbackMessageId(lastMsg.id)
+      }
+    }
+    prevStageRef.current = stage
+  }, [stage, messages, feedbackMessageId])
 
   /* ── Effects ── */
   useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])
@@ -312,6 +346,13 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   }, [error, clearError])
 
   useEffect(() => { if (slideReview.error) toast.error(slideReview.error) }, [slideReview.error])
+
+  // Transition setup phase: researching → review when research finishes
+  useEffect(() => {
+    if (setupPhase === "researching" && !isResearching) {
+      setSetupPhase(researchMeta ? "review" : "mode-select")
+    }
+  }, [setupPhase, isResearching, researchMeta])
 
   useEffect(() => {
     if (slideReview.deckSummary && slideReview.slideFeedbacks.length > 0) {
@@ -432,12 +473,45 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   }
 
   /* ── Handlers ── */
+  function handleSendOrTransition(text: string) {
+    // Intercept special stage transition tokens
+    if (text === "__START_PRESENT__") {
+      setPresentationMode(true)
+      return
+    }
+    if (text === "__START_UPLOAD_RECORDING__") {
+      if (isTrialMode) { router.push("/login"); return }
+      fileInputRef.current?.click()
+      return
+    }
+    if (text === "__START_UPLOAD_SLIDES__") {
+      if (isTrialMode) { router.push("/login"); return }
+      pdfInputRef.current?.click()
+      return
+    }
+    if (text === "__FINISH_PRESENTING__") {
+      setPresentationMode(false)
+      stopSpeaking()
+      finishPresentation()
+      return
+    }
+    if (text === "__SKIP_TO_FEEDBACK__") {
+      skipToFeedback()
+      return
+    }
+    if (text === "__UPLOAD_ANOTHER__") {
+      fileInputRef.current?.click()
+      return
+    }
+    sendMessage(text)
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = input.trim()
     if (!trimmed || isInputDisabled) return
     setInput("")
-    sendMessage(trimmed)
+    handleSendOrTransition(trimmed)
   }
 
   function handlePdfAnalysis(file: File) {
@@ -490,17 +564,51 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     }
   }
 
+  function buildSetupContext(): SetupContext | null {
+    const topic = setupTopic.trim()
+    const audience = setupAudience.trim()
+    const goal = setupGoal.trim()
+    const additionalContext = setupAdditional.trim()
+    if (!topic && !audience && !goal && !additionalContext) return null
+    return {
+      ...(topic ? { topic } : {}),
+      ...(audience ? { audience } : {}),
+      ...(goal ? { goal } : {}),
+      ...(additionalContext ? { additionalContext } : {}),
+    }
+  }
+
   function buildContextMessage(): string | null {
     const parts: string[] = []
     if (setupTopic.trim()) parts.push(`I'm presenting on: ${setupTopic.trim()}`)
     if (setupAudience.trim()) parts.push(`My audience is: ${setupAudience.trim()}`)
     if (setupGoal.trim()) parts.push(`My goal is to: ${setupGoal.trim()}`)
+    if (setupAdditional.trim()) parts.push(`Additional context: ${setupAdditional.trim()}`)
     return parts.length > 0 ? parts.join(". ") + "." : null
   }
 
-  function handleStartAction(action: "present" | "upload-recording" | "upload-slides" | "just-chat") {
+  function handleSetupSubmit() {
+    if (!hasSetupContent) return
+    const setupCtx = buildSetupContext()
+    if (!setupCtx) return
+
+    const audience = setupAudience.trim()
+    if (audience) {
+      // Has audience — research first, then review
+      setSetupPhase("researching")
+      startResearchEarly(audience, setupTopic.trim() || undefined)
+    } else {
+      // No audience — skip straight to mode selection
+      setSetupPhase("mode-select")
+    }
+  }
+
+  function handleModeSelect(mode: "present" | "upload-recording" | "upload-slides" | "just-chat") {
     const context = buildContextMessage()
-    switch (action) {
+    const setupCtx = buildSetupContext()
+    if (setupCtx) startPresentation(setupCtx)
+
+    switch (mode) {
       case "present":
         if (context) addMessage(context)
         setPresentationMode(true)
@@ -521,17 +629,12 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     }
   }
 
+  const hasSetupContent = !!(setupTopic.trim() || setupAudience.trim() || setupGoal.trim())
+
   function handleSetupKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && hasSetupContent) {
       e.preventDefault()
-      const context = buildContextMessage()
-      if (context) {
-        // Fields filled — send context and start chatting
-        sendMessage(context)
-      } else {
-        // No fields — enter presentation mode directly
-        setPresentationMode(true)
-      }
+      handleSetupSubmit()
     }
   }
 
@@ -657,157 +760,287 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
               </div>
 
               <div className="flex w-full max-w-2xl flex-col items-center overflow-hidden">
-                <FadeIn delay={0.1}>
-                  <div className="mt-2 flex w-full flex-col items-center gap-6 font-display text-center text-lg text-muted-foreground sm:text-xl md:text-2xl">
-                    {/* Topic */}
-                    <div className="flex flex-col items-center">
-                      <span>I&apos;m presenting</span>
-                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
-                        <span ref={topicSizerRef} className="invisible whitespace-nowrap px-1">{setupTopic ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
-                        <input
-                          type="text"
-                          value={setupTopic}
-                          onChange={(e) => setSetupTopic(e.target.value)}
-                          onKeyDown={handleSetupKeyDown}
-                          className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
-                        />
-                        {!setupTopic && (
-                          <AnimatePresence mode="wait">
-                            <motion.span
-                              key={SETUP_EXAMPLES[exampleIndex].topic}
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.25, ease: "easeInOut" }}
-                              className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
+                <AnimatePresence mode="wait">
+                  {setupPhase === "fields" && (
+                    <motion.div
+                      key="setup-fields"
+                      initial={{ opacity: 1 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="flex w-full flex-col items-center"
+                    >
+                      <FadeIn delay={0.1}>
+                        <div className="mt-2 flex w-full flex-col items-center gap-6 font-display text-center text-lg text-muted-foreground sm:text-xl md:text-2xl">
+                          {/* Topic */}
+                          <div className="flex flex-col items-center">
+                            <span>I&apos;m presenting</span>
+                            <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                              <span ref={topicSizerRef} className="invisible whitespace-nowrap px-1">{setupTopic ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
+                              <input
+                                type="text"
+                                value={setupTopic}
+                                onChange={(e) => setSetupTopic(e.target.value)}
+                                onKeyDown={handleSetupKeyDown}
+                                className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
+                              />
+                              {!setupTopic && (
+                                <AnimatePresence mode="wait">
+                                  <motion.span
+                                    key={SETUP_EXAMPLES[exampleIndex].topic}
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.25, ease: "easeInOut" }}
+                                    className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
+                                  >
+                                    {SETUP_EXAMPLES[exampleIndex].topic}
+                                  </motion.span>
+                                </AnimatePresence>
+                              )}
+                              <motion.span
+                                className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                                initial={false}
+                                animate={{ width: blankWidths.topic + 20 }}
+                                transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
+                              />
+                            </span>
+                          </div>
+
+                          {/* Audience */}
+                          <div className="flex flex-col items-center">
+                            <span>to</span>
+                            <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                              <span ref={audienceSizerRef} className="invisible whitespace-nowrap px-1">{setupAudience ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
+                              <input
+                                type="text"
+                                value={setupAudience}
+                                onChange={(e) => setSetupAudience(e.target.value)}
+                                onKeyDown={handleSetupKeyDown}
+                                className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
+                              />
+                              {!setupAudience && (
+                                <AnimatePresence mode="wait">
+                                  <motion.span
+                                    key={SETUP_EXAMPLES[exampleIndex].audience}
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.25, ease: "easeInOut" }}
+                                    className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
+                                  >
+                                    {SETUP_EXAMPLES[exampleIndex].audience}
+                                  </motion.span>
+                                </AnimatePresence>
+                              )}
+                              <motion.span
+                                className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                                initial={false}
+                                animate={{ width: blankWidths.audience + 20 }}
+                                transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
+                              />
+                            </span>
+                          </div>
+
+                          {/* Goal */}
+                          <div className="flex flex-col items-center">
+                            <span>and I want to</span>
+                            <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
+                              <span ref={goalSizerRef} className="invisible whitespace-nowrap px-1">{setupGoal ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
+                              <input
+                                type="text"
+                                value={setupGoal}
+                                onChange={(e) => setSetupGoal(e.target.value)}
+                                onKeyDown={handleSetupKeyDown}
+                                className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
+                              />
+                              {!setupGoal && (
+                                <AnimatePresence mode="wait">
+                                  <motion.span
+                                    key={SETUP_EXAMPLES[exampleIndex].goal}
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.25, ease: "easeInOut" }}
+                                    className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
+                                  >
+                                    {SETUP_EXAMPLES[exampleIndex].goal}
+                                  </motion.span>
+                                </AnimatePresence>
+                              )}
+                              <motion.span
+                                className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                                initial={false}
+                                animate={{ width: blankWidths.goal + 20 }}
+                                transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
+                              />
+                            </span>
+                          </div>
+                        </div>
+                      </FadeIn>
+
+                      {/* Optional additional context — fixed-size container, no displacement */}
+                      <FadeIn delay={0.15}>
+                        <div className="mt-6 flex justify-center">
+                          <div className="relative h-12 w-full max-w-sm">
+                            <button
+                              type="button"
+                              onClick={() => setShowAdditional(true)}
+                              className={`absolute inset-0 z-10 flex items-start justify-center pt-1 font-display text-xs text-muted-foreground/50 transition-opacity duration-300 hover:text-muted-foreground ${showAdditional ? "pointer-events-none opacity-0" : "opacity-100"}`}
                             >
-                              {SETUP_EXAMPLES[exampleIndex].topic}
-                            </motion.span>
-                          </AnimatePresence>
-                        )}
-                        <motion.span
-                          className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                          initial={false}
-                          animate={{ width: blankWidths.topic + 20 }}
-                          transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
-                        />
-                      </span>
-                    </div>
+                              + Add more context
+                            </button>
+                            <textarea
+                              value={setupAdditional}
+                              onChange={(e) => setSetupAdditional(e.target.value)}
+                              onKeyDown={handleSetupKeyDown}
+                              placeholder="Anything else Vera should know"
+                              rows={2}
+                              className={`h-full w-full resize-none rounded-lg border bg-transparent px-3 py-2 font-display text-xs text-foreground placeholder:text-muted-foreground/30 focus:outline-none transition-all duration-300 ${showAdditional ? "border-border/40 opacity-100 focus:border-primary/30 focus:ring-1 focus:ring-primary/20" : "pointer-events-none border-transparent opacity-0"}`}
+                            />
+                          </div>
+                        </div>
+                      </FadeIn>
 
-                    {/* Audience */}
-                    <div className="flex flex-col items-center">
-                      <span>to</span>
-                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
-                        <span ref={audienceSizerRef} className="invisible whitespace-nowrap px-1">{setupAudience ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
-                        <input
-                          type="text"
-                          value={setupAudience}
-                          onChange={(e) => setSetupAudience(e.target.value)}
-                          onKeyDown={handleSetupKeyDown}
-                          className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
-                        />
-                        {!setupAudience && (
-                          <AnimatePresence mode="wait">
-                            <motion.span
-                              key={SETUP_EXAMPLES[exampleIndex].audience}
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.25, ease: "easeInOut" }}
-                              className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
-                            >
-                              {SETUP_EXAMPLES[exampleIndex].audience}
-                            </motion.span>
-                          </AnimatePresence>
-                        )}
-                        <motion.span
-                          className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                          initial={false}
-                          animate={{ width: blankWidths.audience + 20 }}
-                          transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
-                        />
-                      </span>
-                    </div>
+                      {/* Ready button — fixed height so it doesn't shift layout */}
+                      <FadeIn delay={0.2}>
+                        <div className="mt-8 flex h-11 items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={handleSetupSubmit}
+                            disabled={!hasSetupContent}
+                            className={`flex items-center gap-2 rounded-full border px-6 py-2.5 text-sm font-medium transition-all duration-300 ease-out active:scale-[0.98] ${
+                              hasSetupContent
+                                ? "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10 hover:border-primary/40"
+                                : "pointer-events-none border-transparent bg-transparent text-transparent opacity-0"
+                            }`}
+                          >
+                            <ArrowRight className="h-3.5 w-3.5 text-primary/70" />
+                            Ready
+                          </button>
+                        </div>
+                      </FadeIn>
 
-                    {/* Goal */}
-                    <div className="flex flex-col items-center">
-                      <span>and I want to</span>
-                      <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
-                        <span ref={goalSizerRef} className="invisible whitespace-nowrap px-1">{setupGoal ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
-                        <input
-                          type="text"
-                          value={setupGoal}
-                          onChange={(e) => setSetupGoal(e.target.value)}
-                          onKeyDown={handleSetupKeyDown}
-                          className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
-                        />
-                        {!setupGoal && (
-                          <AnimatePresence mode="wait">
-                            <motion.span
-                              key={SETUP_EXAMPLES[exampleIndex].goal}
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.25, ease: "easeInOut" }}
-                              className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
-                            >
-                              {SETUP_EXAMPLES[exampleIndex].goal}
-                            </motion.span>
-                          </AnimatePresence>
-                        )}
-                        <motion.span
-                          className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                          initial={false}
-                          animate={{ width: blankWidths.goal + 20 }}
-                          transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
-                        />
-                      </span>
-                    </div>
-                  </div>
-                </FadeIn>
+                      {isTrialMode && (
+                        <FadeIn delay={0.3}>
+                          <p className="mt-6 text-xs text-primary sm:text-sm">Try 4 free messages — no account needed</p>
+                        </FadeIn>
+                      )}
+                    </motion.div>
+                  )}
 
-                <FadeIn delay={0.2}>
-                  <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleStartAction("present")}
-                      className="flex items-center gap-2 rounded-full border border-border/60 px-4 py-2 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground active:scale-[0.98]"
+                  {setupPhase === "researching" && (
+                    <motion.div
+                      key="setup-researching"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="flex w-full flex-col items-center gap-6 py-8"
                     >
-                      <Mic className="h-3.5 w-3.5 text-primary/60" />
-                      Present live
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStartAction("upload-recording")}
-                      className="flex items-center gap-2 rounded-full border border-border/60 px-4 py-2 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground active:scale-[0.98]"
-                    >
-                      <Upload className="h-3.5 w-3.5 text-primary/60" />
-                      Upload recording
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStartAction("upload-slides")}
-                      className="flex items-center gap-2 rounded-full border border-border/60 px-4 py-2 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground active:scale-[0.98]"
-                    >
-                      <FileText className="h-3.5 w-3.5 text-primary/60" />
-                      Upload slides
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStartAction("just-chat")}
-                      className="flex items-center gap-2 rounded-full border border-border/60 px-4 py-2 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground active:scale-[0.98]"
-                    >
-                      <Send className="h-3.5 w-3.5 text-primary/60" />
-                      Just chat
-                    </button>
-                  </div>
-                </FadeIn>
+                      <div className="flex flex-col items-center gap-4">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
+                        <div className="text-center">
+                          <p className="font-display text-lg text-foreground/80">Researching your audience</p>
+                          <p className="mt-1 text-sm text-muted-foreground/60">
+                            Learning about {setupAudience.trim() || "your audience"} so I can give sharper feedback
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
 
-                {isTrialMode && (
-                  <FadeIn delay={0.3}>
-                    <p className="mt-6 text-xs text-primary sm:text-sm">Try 4 free messages — no account needed</p>
-                  </FadeIn>
-                )}
+                  {setupPhase === "review" && researchMeta && (
+                    <motion.div
+                      key="setup-review"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="flex w-full flex-col items-center gap-6 py-4"
+                    >
+                      <div className="text-center">
+                        <p className="font-display text-lg text-foreground/80">Here&apos;s what I found</p>
+                        <p className="mt-1 text-sm text-muted-foreground/60">Review the research before we continue</p>
+                      </div>
+
+                      <div className="w-full max-w-lg">
+                        <ResearchCard meta={researchMeta} />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSetupPhase("mode-select")}
+                        className="flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-6 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-primary/10 hover:border-primary/40 active:scale-[0.98]"
+                      >
+                        <ArrowRight className="h-3.5 w-3.5 text-primary/70" />
+                        Looks good
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {setupPhase === "mode-select" && (
+                    <motion.div
+                      key="setup-mode-select"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="flex w-full flex-col items-center gap-6 py-8"
+                    >
+                      <div className="text-center">
+                        <p className="font-display text-lg text-foreground/80">How do you want to present?</p>
+                        <p className="mt-1 text-sm text-muted-foreground/60">Choose how you&apos;d like to deliver your presentation</p>
+                      </div>
+
+                      <div className="flex flex-col gap-2 w-full max-w-xs">
+                        <button
+                          type="button"
+                          onClick={() => handleModeSelect("present")}
+                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+                        >
+                          <Mic className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
+                          <div>
+                            <p className="text-sm text-foreground/80">Present live</p>
+                            <p className="text-xs text-muted-foreground/40">Record yourself presenting in real time</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleModeSelect("upload-recording")}
+                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+                        >
+                          <Upload className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
+                          <div>
+                            <p className="text-sm text-foreground/80">Upload recording</p>
+                            <p className="text-xs text-muted-foreground/40">Upload an audio or video file</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleModeSelect("upload-slides")}
+                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+                        >
+                          <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
+                          <div>
+                            <p className="text-sm text-foreground/80">Upload slides</p>
+                            <p className="text-xs text-muted-foreground/40">Upload a PDF of your slide deck</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleModeSelect("just-chat")}
+                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+                        >
+                          <Send className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
+                          <div>
+                            <p className="text-sm text-foreground/80">Just chat</p>
+                            <p className="text-xs text-muted-foreground/40">Talk through your presentation in text</p>
+                          </div>
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
 
@@ -826,14 +1059,20 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
               {/* Scrollable feed */}
               <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
                 <div className="mx-auto flex max-w-2xl flex-col gap-6">
+                  {/* Stage indicator */}
+                  <StageIndicator stage={stage} />
+
                   {messages.map((msg) => {
                     if (msg.role === "assistant" && !msg.content) return null
+                    const isFeedbackMessage = msg.id === feedbackMessageId
                     return (
                       <div key={msg.id}>
                         {msg.role === "assistant" ? (
                           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-                            <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            <div className={isFeedbackMessage ? "rounded-xl border border-primary/10 bg-primary/[0.02] p-5" : ""}>
+                              <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
+                                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              </div>
                             </div>
                           </motion.div>
                         ) : (
@@ -875,7 +1114,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                       <div className="flex flex-wrap gap-2">
                         {followUps.map((f) => (
                           <button key={f.label} type="button"
-                            onClick={() => { setInput(""); sendMessage(f.message) }}
+                            onClick={() => { setInput(""); handleSendOrTransition(f.message) }}
                             disabled={isInputDisabled}
                             className="group flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-sm text-foreground/80 transition-all hover:border-primary/30 hover:bg-accent hover:text-foreground active:scale-[0.98] disabled:opacity-50">
                             {f.label}
@@ -1004,17 +1243,32 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
             </div>
 
             {/* Record controls — fixed height prevents layout shift */}
-            <div className="mt-8 flex h-10 items-center justify-center">
+            <div className="mt-8 flex h-10 items-center justify-center gap-3">
               {(faceState === "idle" || faceState === "satisfied") && !isBusy && (
-                <button
-                  ref={continueRef}
-                  type="button"
-                  onClick={handleStartRecording}
-                  className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
-                >
-                  <span className="h-2 w-2 rounded-full bg-red-500" />
-                  Continue
-                </button>
+                <>
+                  <button
+                    ref={continueRef}
+                    type="button"
+                    onClick={handleStartRecording}
+                    className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    Continue
+                  </button>
+                  {transcript && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPresentationMode(false)
+                        stopSpeaking()
+                        finishPresentation()
+                      }}
+                      className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-2.5 text-sm text-primary/80 hover:bg-primary/10 hover:text-primary transition-colors"
+                    >
+                      I&apos;m done
+                    </button>
+                  )}
+                </>
               )}
 
               {recorder.isRecording && (

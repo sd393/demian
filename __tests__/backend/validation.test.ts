@@ -3,6 +3,7 @@ import {
   validateFile,
   validateSlideFile,
   chatRequestSchema,
+  researchRequestSchema,
   slideAnalyzeRequestSchema,
   sanitizeInput,
 } from '@/backend/validation'
@@ -194,6 +195,154 @@ describe('chatRequestSchema', () => {
     const result = chatRequestSchema.safeParse({
       messages: [{ role: 'user', content: 'Hello' }],
       slideContext: 'x'.repeat(30_001),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('defaults stage to define when not provided', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.stage).toBe('define')
+    }
+  })
+
+  it('accepts valid stage values', () => {
+    for (const stage of ['define', 'present', 'qa', 'feedback', 'followup']) {
+      const result = chatRequestSchema.safeParse({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stage,
+      })
+      expect(result.success).toBe(true)
+    }
+  })
+
+  it('rejects invalid stage values', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stage: 'invalid',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts setupContext with all fields', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: {
+        topic: 'Series A pitch',
+        audience: 'VC investors',
+        goal: 'secure funding',
+        additionalContext: 'Focus on traction metrics',
+      },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.setupContext?.topic).toBe('Series A pitch')
+      expect(result.data.setupContext?.audience).toBe('VC investors')
+    }
+  })
+
+  it('accepts setupContext with partial fields', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { topic: 'My talk' },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects setupContext with topic exceeding 500 chars', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { topic: 'x'.repeat(501) },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects setupContext with additionalContext exceeding 2000 chars', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { additionalContext: 'x'.repeat(2001) },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts qaQuestionsAsked within range', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      qaQuestionsAsked: 3,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects qaQuestionsAsked exceeding max', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      qaQuestionsAsked: 11,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects negative qaQuestionsAsked', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      qaQuestionsAsked: -1,
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('researchRequestSchema', () => {
+  it('accepts request with only audience description', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'VC investors at Series A stage',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts request with transcript and audience', () => {
+    const result = researchRequestSchema.safeParse({
+      transcript: 'Hello everyone, today I will present...',
+      audienceDescription: 'VC investors',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts request with topic and audience', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'VC investors',
+      topic: 'Series A fundraising',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects request without audience description', () => {
+    const result = researchRequestSchema.safeParse({
+      transcript: 'some transcript',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects empty audience description', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: '',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects transcript exceeding max length', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'test',
+      transcript: 'x'.repeat(100_001),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects topic exceeding max length', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'test',
+      topic: 'x'.repeat(2_001),
     })
     expect(result.success).toBe(false)
   })

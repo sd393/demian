@@ -24,13 +24,22 @@ Do NOT include generic terms like "how to give a good presentation".
 Focus on the AUDIENCE's domain knowledge and expectations.`
 
 export async function generateSearchTerms(
-  transcript: string,
-  audienceDescription: string
+  audienceDescription: string,
+  transcript?: string,
+  topic?: string,
 ): Promise<SearchTermsResult> {
   const client = openai()
 
-  // Truncate transcript to keep token costs low — topic is clear from the opening
-  const truncatedTranscript = transcript.slice(0, 3000)
+  // Build context from whatever we have — transcript, topic, or just audience
+  let contextSection: string
+  if (transcript) {
+    const truncatedTranscript = transcript.slice(0, 3000)
+    contextSection = `PRESENTATION TRANSCRIPT (excerpt):\n"""\n${truncatedTranscript}\n"""`
+  } else if (topic) {
+    contextSection = `PRESENTATION TOPIC:\n"""\n${topic}\n"""`
+  } else {
+    contextSection = `(No transcript or topic provided — generate search terms based on the audience alone.)`
+  }
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -38,7 +47,7 @@ export async function generateSearchTerms(
       { role: 'system', content: SEARCH_TERM_PROMPT },
       {
         role: 'user',
-        content: `PRESENTATION TRANSCRIPT (excerpt):\n"""\n${truncatedTranscript}\n"""\n\nTARGET AUDIENCE DESCRIPTION:\n"""\n${audienceDescription}\n"""`,
+        content: `${contextSection}\n\nTARGET AUDIENCE DESCRIPTION:\n"""\n${audienceDescription}\n"""`,
       },
     ],
     response_format: { type: 'json_object' },

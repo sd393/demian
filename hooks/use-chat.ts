@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { upload } from '@vercel/blob/client'
 import { validateFile } from '@/backend/validation'
 import { shouldExtractClientSide, extractAudioClientSide } from '@/lib/client-audio'
+import type { CoachingStage, SetupContext } from '@/lib/coaching-stages'
 
 export interface Attachment {
   name: string
@@ -51,14 +52,21 @@ export function useChat(authToken?: string | null) {
   >(null)
   const [trialLimitReached, setTrialLimitReached] = useState(false)
   const [freeLimitReached, setFreeLimitReached] = useState(false)
-  const [awaitingAudience, setAwaitingAudience] = useState(false)
+
+  // Stage machine state
+  const [stage, setStage] = useState<CoachingStage>('define')
+  const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
+  const [qaQuestionsAsked, setQaQuestionsAsked] = useState(0)
+
   const abortControllerRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<Message[]>([INITIAL_MESSAGE])
   const transcriptRef = useRef<string | null>(null)
   const researchContextRef = useRef<string | null>(null)
   const slideContextRef = useRef<string | null>(null)
   const authTokenRef = useRef<string | null>(null)
-  const awaitingAudienceRef = useRef(false)
+  const stageRef = useRef<CoachingStage>('define')
+  const setupContextRef = useRef<SetupContext | null>(null)
+  const qaQuestionsAskedRef = useRef(0)
 
   // Keep refs in sync with state on each render
   messagesRef.current = messages
@@ -66,7 +74,9 @@ export function useChat(authToken?: string | null) {
   researchContextRef.current = researchContext
   slideContextRef.current = slideContext
   authTokenRef.current = authToken ?? null
-  awaitingAudienceRef.current = awaitingAudience
+  stageRef.current = stage
+  setupContextRef.current = setupContext
+  qaQuestionsAskedRef.current = qaQuestionsAsked
 
   // On mount for trial users, check cookie for prior trial usage
   useEffect(() => {
@@ -91,7 +101,11 @@ export function useChat(authToken?: string | null) {
   const streamChatResponse = useCallback(
     async (
       currentMessages: Message[],
-      currentTranscript: string | null
+      currentTranscript: string | null,
+      overrides?: {
+        stage?: CoachingStage
+        qaQuestionsAsked?: number
+      }
     ) => {
       setIsStreaming(true)
 
@@ -113,6 +127,9 @@ export function useChat(authToken?: string | null) {
           headers['Authorization'] = `Bearer ${token}`
         }
 
+        const effectiveStage = overrides?.stage ?? stageRef.current
+        const effectiveQA = overrides?.qaQuestionsAsked ?? qaQuestionsAskedRef.current
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers,
@@ -126,7 +143,9 @@ export function useChat(authToken?: string | null) {
             transcript: currentTranscript ?? undefined,
             researchContext: researchContextRef.current ?? undefined,
             slideContext: slideContextRef.current ?? undefined,
-            awaitingAudience: awaitingAudienceRef.current || undefined,
+            stage: effectiveStage,
+            setupContext: setupContextRef.current ?? undefined,
+            qaQuestionsAsked: effectiveQA,
           }),
           signal: controller.signal,
         })
@@ -238,6 +257,52 @@ export function useChat(authToken?: string | null) {
     []
   )
 
+  const startResearchEarly = useCallback(
+    async (audience: string, topic?: string) => {
+      setIsResearching(true)
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        }
+        const token = authTokenRef.current
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`
+        }
+
+        const response = await fetch('/api/research', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            audienceDescription: audience,
+            topic: topic || undefined,
+          }),
+        })
+
+        if (!response.ok) {
+          console.warn('[research] Early research failed:', response.status)
+          return null
+        }
+
+        const data = await response.json()
+
+        setResearchContext(data.researchContext)
+        researchContextRef.current = data.researchContext
+        setResearchMeta({
+          searchTerms: data.searchTerms,
+          audienceSummary: data.audienceSummary,
+          briefing: data.researchContext,
+        })
+        return data.researchContext as string
+      } catch {
+        console.warn('[research] Early research error, proceeding without enrichment')
+        return null
+      } finally {
+        setIsResearching(false)
+      }
+    },
+    []
+  )
+
   const runResearchPipeline = useCallback(
     async (currentTranscript: string, currentMessages: Message[]) => {
       setIsResearching(true)
@@ -321,19 +386,67 @@ export function useChat(authToken?: string | null) {
       messagesRef.current = updatedMessages
       setMessages(updatedMessages)
 
-      // When the user answers the audience question, clear awaitingAudience,
-      // run research with their answer, then stream the full reaction
-      const isAnsweringAudience = awaitingAudienceRef.current
-      if (isAnsweringAudience) {
-        setAwaitingAudience(false)
-        awaitingAudienceRef.current = false
-
-        await runResearchPipeline(transcriptRef.current!, updatedMessages)
+      // During Q&A, increment question count for each user answer
+      if (stageRef.current === 'qa') {
+        const newCount = qaQuestionsAskedRef.current + 1
+        setQaQuestionsAsked(newCount)
+        qaQuestionsAskedRef.current = newCount
       }
 
       await streamChatResponse(updatedMessages, transcriptRef.current)
+
+      // After Q&A response, check if we should transition to feedback
+      if (stageRef.current === 'qa' && qaQuestionsAskedRef.current >= 4) {
+        setStage('feedback')
+        stageRef.current = 'feedback'
+        // Auto-trigger feedback
+        const feedbackMessages = messagesRef.current
+        await streamChatResponse(feedbackMessages, transcriptRef.current, { stage: 'feedback' })
+        // After feedback, transition to followup
+        setStage('followup')
+        stageRef.current = 'followup'
+      }
     },
-    [streamChatResponse, runResearchPipeline]
+    [streamChatResponse]
+  )
+
+  const startPresentation = useCallback(
+    (context: SetupContext) => {
+      setSetupContext(context)
+      setupContextRef.current = context
+      setStage('present')
+      stageRef.current = 'present'
+
+      // Fire early research if audience is provided
+      if (context.audience) {
+        startResearchEarly(context.audience, context.topic)
+      }
+    },
+    [startResearchEarly]
+  )
+
+  const finishPresentation = useCallback(
+    async () => {
+      setStage('qa')
+      stageRef.current = 'qa'
+      // Trigger Vera's first Q&A response
+      const currentMessages = messagesRef.current
+      await streamChatResponse(currentMessages, transcriptRef.current, { stage: 'qa' })
+    },
+    [streamChatResponse]
+  )
+
+  const skipToFeedback = useCallback(
+    async () => {
+      setStage('feedback')
+      stageRef.current = 'feedback'
+      const currentMessages = messagesRef.current
+      await streamChatResponse(currentMessages, transcriptRef.current, { stage: 'feedback' })
+      // After feedback completes, transition to followup
+      setStage('followup')
+      stageRef.current = 'followup'
+    },
+    [streamChatResponse]
   )
 
   const uploadFile = useCallback(
@@ -430,13 +543,8 @@ export function useChat(authToken?: string | null) {
         messagesRef.current = updatedWithTranscript
         setMessages(updatedWithTranscript)
 
-        // Set awaitingAudience so the model asks who the audience is
-        // instead of giving a full reaction immediately
-        setAwaitingAudience(true)
-        awaitingAudienceRef.current = true
-
-        // Trigger a chat response — the model will ask about the audience
-        await streamChatResponse(updatedWithTranscript, newTranscript)
+        // Transition to Q&A after upload (skip present stage since they uploaded)
+        await finishPresentation()
       } catch (err: unknown) {
         setIsCompressing(false)
         // Only silently swallow abort if WE intentionally canceled (user
@@ -456,7 +564,7 @@ export function useChat(authToken?: string | null) {
         setIsTranscribing(false)
       }
     },
-    [streamChatResponse]
+    [finishPresentation]
   )
 
   // Add a message to the timeline without triggering a chat completion.
@@ -492,8 +600,12 @@ export function useChat(authToken?: string | null) {
     setSlideContext(null)
     researchContextRef.current = null
     slideContextRef.current = null
-    setAwaitingAudience(false)
-    awaitingAudienceRef.current = false
+    setStage('define')
+    stageRef.current = 'define'
+    setSetupContext(null)
+    setupContextRef.current = null
+    setQaQuestionsAsked(0)
+    qaQuestionsAskedRef.current = 0
     setIsCompressing(false)
     setIsTranscribing(false)
     setIsResearching(false)
@@ -515,11 +627,18 @@ export function useChat(authToken?: string | null) {
     trialMessagesRemaining,
     trialLimitReached,
     freeLimitReached,
+    stage,
+    setupContext,
+    qaQuestionsAsked,
     sendMessage,
     uploadFile,
     addMessage,
     setSlideContext,
     clearError,
     resetConversation,
+    startPresentation,
+    finishPresentation,
+    skipToFeedback,
+    startResearchEarly,
   }
 }

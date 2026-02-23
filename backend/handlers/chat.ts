@@ -68,9 +68,16 @@ export async function handleChat(request: NextRequest) {
       )
     }
 
-    const { messages, transcript, researchContext, slideContext, awaitingAudience } = parsed.data
+    const { messages, transcript, researchContext, slideContext, stage, setupContext, qaQuestionsAsked } = parsed.data
 
-    const systemPrompt = buildSystemPrompt(transcript, researchContext, slideContext, awaitingAudience)
+    const systemPrompt = buildSystemPrompt({
+      stage,
+      transcript,
+      researchContext,
+      slideContext,
+      setupContext,
+      qaQuestionsAsked,
+    })
 
     const openaiMessages: Array<{
       role: 'system' | 'user' | 'assistant'
@@ -89,7 +96,7 @@ export async function handleChat(request: NextRequest) {
       messages: openaiMessages,
       stream: true,
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: stage === 'feedback' ? 3000 : 2000,
     })
 
     if (isTrialUser) {
