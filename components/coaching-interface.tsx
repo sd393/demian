@@ -100,7 +100,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const router = useRouter()
 
   const {
-    messages, researchMeta, isCompressing, isTranscribing, isResearching, isStreaming,
+    messages, researchMeta, researchSearchTerms, isCompressing, isTranscribing, isResearching, isStreaming,
     error, trialMessagesRemaining, trialLimitReached, freeLimitReached,
     stage, transcript,
     sendMessage, uploadFile, addMessage, setSlideContext, clearError,
@@ -118,13 +118,32 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const [setupGoal, setSetupGoal] = useState("")
   const [setupAdditional, setSetupAdditional] = useState("")
   const [showAdditional, setShowAdditional] = useState(false)
-  const [setupPhase, setSetupPhase] = useState<"fields" | "researching" | "review" | "mode-select">("fields")
+  const [setupPhase, setSetupPhase] = useState<"fields" | "researching" | "review" | "mode-select" | "uploading">("fields")
   const [showTrialDialog, setShowTrialDialog] = useState(false)
   const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
   const [presentationMode, setPresentationMode] = useState(false)
+  const presentationCommittedRef = useRef(false)
+  const pendingUploadRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
+
+  /* ── Research snippet cycling ── */
+  const [researchSnippetIndex, setResearchSnippetIndex] = useState(0)
+  const researchSnippet = researchSearchTerms
+    ? researchSearchTerms[researchSnippetIndex % researchSearchTerms.length]
+    : null
+
+  // Cycle through search terms once they arrive
+  useEffect(() => {
+    if (!researchSearchTerms || researchSearchTerms.length <= 1) return
+    setResearchSnippetIndex(0)
+    const interval = setInterval(
+      () => setResearchSnippetIndex((i) => (i + 1) % researchSearchTerms.length),
+      2500
+    )
+    return () => clearInterval(interval)
+  }, [researchSearchTerms])
 
   /* ── Responsive placeholder ── */
   useEffect(() => {
@@ -184,8 +203,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const messagesRef = useRef(messages)
   messagesRef.current = messages
 
-  function fetchPulseLabels() {
-    const recent = messagesRef.current
+  function fetchPulseLabels(overrideMessages?: { role: string; content: string }[]) {
+    const recent = overrideMessages ?? messagesRef.current
       .filter(m => m.content.trim())
       .slice(-4)
       .map(m => ({ role: m.role as "user" | "assistant", content: m.content }))
@@ -271,7 +290,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   /* ── Derived state ── */
   const isBusy = isCompressing || isTranscribing || isResearching || isStreaming
   const isInputDisabled = isBusy || trialLimitReached || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording
-  const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
+  const isEmptyState = (messages.length === 1 && messages[0].role === "assistant") || setupPhase === "uploading"
 
   const faceState: FaceState = recorder.isRecording ? "listening"
     : isProcessingHeld ? "thinking"
@@ -347,12 +366,29 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   useEffect(() => { if (slideReview.error) toast.error(slideReview.error) }, [slideReview.error])
 
+  // Fetch pulse labels after transcription completes in presentation mode
+  // so audience thoughts update while the AI is still "thinking"
+  const prevTranscribingRef = useRef(false)
+  useEffect(() => {
+    if (prevTranscribingRef.current && !isTranscribing && presentationMode) {
+      fetchPulseLabels()
+    }
+    prevTranscribingRef.current = isTranscribing
+  }, [isTranscribing, presentationMode])
+
   // Transition setup phase: researching → review when research finishes
   useEffect(() => {
     if (setupPhase === "researching" && !isResearching) {
       setSetupPhase(researchMeta ? "review" : "mode-select")
     }
   }, [setupPhase, isResearching, researchMeta])
+
+  // Transition setup phase: uploading → done when processing finishes
+  useEffect(() => {
+    if (setupPhase === "uploading" && !isCompressing && !isTranscribing) {
+      setSetupPhase("fields")
+    }
+  }, [setupPhase, isCompressing, isTranscribing])
 
   useEffect(() => {
     if (slideReview.deckSummary && slideReview.slideFeedbacks.length > 0) {
@@ -367,7 +403,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   useEffect(() => {
     if (!presentationMode) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { setPresentationMode(false); stopSpeaking() }
+      if (e.key === "Enter") handleStartRecording()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -490,8 +526,8 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       return
     }
     if (text === "__FINISH_PRESENTING__") {
-      setPresentationMode(false)
       stopSpeaking()
+      setPresentationMode(false)
       finishPresentation()
       return
     }
@@ -522,7 +558,18 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file) { pendingUploadRef.current = false; return }
+
+    // Coming from setup flow — commit and enter uploading phase
+    if (pendingUploadRef.current) {
+      pendingUploadRef.current = false
+      const setupCtx = buildSetupContext()
+      if (setupCtx) startPresentation(setupCtx)
+      const context = buildContextMessage()
+      if (context) addMessage(context)
+      setSetupPhase("uploading")
+    }
+
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
     isPdf ? handlePdfAnalysis(file) : uploadFile(file)
     if (fileInputRef.current) fileInputRef.current.value = ""
@@ -539,6 +586,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   async function handleStartRecording() {
     if (isTrialMode) { router.push("/login"); return }
+    if (isBusy || recorder.isRecording) return
+    // Commit presentation state on first recording
+    commitPresentation()
     // Hide button instantly via DOM — no waiting for React render cycle
     if (continueRef.current) continueRef.current.style.visibility = "hidden"
     const err = await recorder.startRecording()
@@ -596,28 +646,50 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     if (audience) {
       // Has audience — research first, then review
       setSetupPhase("researching")
-      startResearchEarly(audience, setupTopic.trim() || undefined)
+      startResearchEarly(audience, {
+        topic: setupTopic.trim() || undefined,
+        goal: setupGoal.trim() || undefined,
+        additionalContext: setupAdditional.trim() || undefined,
+      })
     } else {
       // No audience — skip straight to mode selection
       setSetupPhase("mode-select")
     }
   }
 
+  function commitPresentation() {
+    if (presentationCommittedRef.current) return
+    presentationCommittedRef.current = true
+    const context = buildContextMessage()
+    const setupCtx = buildSetupContext()
+    if (setupCtx) startPresentation(setupCtx)
+    if (context) addMessage(context)
+  }
+
   function handleModeSelect(mode: "present" | "upload-recording" | "upload-slides" | "just-chat") {
+    if (mode === "present") {
+      // Defer startPresentation/addMessage until the user actually records
+      presentationCommittedRef.current = false
+      setPresentationMode(true)
+      // Seed initial audience thoughts based on setup context
+      const ctx = buildContextMessage()
+      if (ctx) fetchPulseLabels([{ role: "user", content: `I'm about to present to you. ${ctx}` }])
+      return
+    }
+
+    if (mode === "upload-recording") {
+      if (isTrialMode) { router.push("/login"); return }
+      // Defer commitment until file is actually selected
+      pendingUploadRef.current = true
+      fileInputRef.current?.click()
+      return
+    }
+
     const context = buildContextMessage()
     const setupCtx = buildSetupContext()
     if (setupCtx) startPresentation(setupCtx)
 
     switch (mode) {
-      case "present":
-        if (context) addMessage(context)
-        setPresentationMode(true)
-        break
-      case "upload-recording":
-        if (isTrialMode) { router.push("/login"); return }
-        if (context) addMessage(context)
-        fileInputRef.current?.click()
-        break
       case "upload-slides":
         if (isTrialMode) { router.push("/login"); return }
         if (context) addMessage(context)
@@ -702,32 +774,13 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     )
   }
 
-  /* ── Sub-label beneath face (active chat only) ── */
+  /* ── Audience pulse label + emotion (used in presentation overlay) ── */
   const currentPulse = pulseLabels[pulseIndex] ?? null
   const currentEmotion: FaceEmotion = currentPulse?.emotion ?? "neutral"
   const audienceLabel = currentPulse?.text
     ?? researchMeta?.audienceSummary
     ?? (slideReview.deckSummary?.audienceAssumed ? `Presenting to ${slideReview.deckSummary.audienceAssumed}` : null)
     ?? "In the room with you"
-
-  const faceSubLabel = (isTranscribing || isResearching) ? (
-    <span className="animate-pulse text-xs text-muted-foreground/70">
-      {isTranscribing ? "Transcribing..." : "Thinking..."}
-    </span>
-  ) : (!isStreaming && !recorder.isRecording) ? (
-    <AnimatePresence mode="wait">
-      <motion.span
-        key={pulseLabels.length > 0 ? pulseIndex : audienceLabel}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-[300px] text-center text-xs leading-snug text-muted-foreground/50"
-      >
-        {audienceLabel}
-      </motion.span>
-    </AnimatePresence>
-  ) : null
 
   /* ── Render ── */
   return (
@@ -920,11 +973,6 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                         </div>
                       </FadeIn>
 
-                      {isTrialMode && (
-                        <FadeIn delay={0.3}>
-                          <p className="mt-6 text-xs text-primary sm:text-sm">Try 4 free messages — no account needed</p>
-                        </FadeIn>
-                      )}
                     </motion.div>
                   )}
 
@@ -941,9 +989,22 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                         <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
                         <div className="text-center">
                           <p className="font-display text-lg text-foreground/80">Researching your audience</p>
-                          <p className="mt-1 text-sm text-muted-foreground/60">
-                            Learning about {setupAudience.trim() || "your audience"} so I can give sharper feedback
-                          </p>
+                          <div className="mt-2 h-5 flex items-center justify-center">
+                            <AnimatePresence mode="wait">
+                              <motion.p
+                                key={researchSnippet ?? "generating"}
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.3, ease: "easeInOut" }}
+                                className="max-w-sm truncate text-sm italic text-muted-foreground/50"
+                              >
+                                {researchSnippet
+                                  ? `Searching "${researchSnippet}"`
+                                  : "Figuring out what to look up..."}
+                              </motion.p>
+                            </AnimatePresence>
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -1037,6 +1098,31 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                             <p className="text-xs text-muted-foreground/40">Talk through your presentation in text</p>
                           </div>
                         </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {setupPhase === "uploading" && (
+                    <motion.div
+                      key="setup-uploading"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="flex w-full flex-col items-center gap-6 py-8"
+                    >
+                      <div className="flex flex-col items-center gap-4">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
+                        <div className="text-center">
+                          <p className="font-display text-lg text-foreground/80">Processing your recording</p>
+                          <p className="mt-1 text-sm text-muted-foreground/60">
+                            {isCompressing
+                              ? "Compressing audio..."
+                              : isTranscribing
+                              ? "Transcribing your recording..."
+                              : "Wrapping up..."}
+                          </p>
+                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -1190,16 +1276,6 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Exit button */}
-            <button
-              type="button"
-              onClick={() => { setPresentationMode(false); stopSpeaking() }}
-              className="absolute top-4 right-4 flex items-center gap-2 rounded-full border border-border bg-muted/60 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-muted hover:border-border/80"
-            >
-              <X className="h-3.5 w-3.5" />
-              Exit
-            </button>
-
             {/* Face */}
             <AudienceFace state={faceState} analyserNode={recorder.analyserNode} size={280} emotion={currentEmotion} />
 
@@ -1217,7 +1293,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                   >
                     {ttsCaption}
                   </motion.p>
-                ) : faceState === "thinking" ? (
+                ) : faceState === "thinking" && pulseLabels.length === 0 ? (
                   <motion.span
                     key="thinking-label"
                     initial={{ opacity: 0 }}

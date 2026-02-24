@@ -15,46 +15,67 @@ export async function handleResearch(request: NextRequest) {
     )
   }
 
+  let body: unknown
   try {
-    const body = await request.json()
-    const parsed = researchRequestSchema.safeParse(body)
-    if (!parsed.success) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid request format' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-
-    const { transcript, audienceDescription, topic } = parsed.data
-
-    // Stage 1: Generate search terms
-    console.log('[research] Stage 1: generating search terms...')
-    const { searchTerms, audienceSummary } = await generateSearchTerms(
-      sanitizeInput(audienceDescription),
-      transcript ? sanitizeInput(transcript) : undefined,
-      topic ? sanitizeInput(topic) : undefined,
-    )
-    console.log('[research] Stage 1 complete:', { audienceSummary, searchTerms })
-
-    // Stage 2: Conduct web research
-    console.log('[research] Stage 2: conducting web research...')
-    const researchContext = await conductResearch(searchTerms, audienceSummary)
-    console.log(
-      '[research] Stage 2 complete:',
-      researchContext.slice(0, 200) + '...'
-    )
-
+    body = await request.json()
+  } catch {
     return new Response(
-      JSON.stringify({ researchContext, audienceSummary, searchTerms }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
-  } catch (error) {
-    console.error('Research pipeline error:', error)
-    return new Response(
-      JSON.stringify({
-        error: 'Research failed. Coaching will proceed without enrichment.',
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: 'Invalid request format' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     )
   }
+
+  const parsed = researchRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return new Response(
+      JSON.stringify({ error: 'Invalid request format' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  const { transcript, audienceDescription, topic, goal, additionalContext } = parsed.data
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder()
+      function send(event: string, data: Record<string, unknown>) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event, ...data })}\n\n`))
+      }
+
+      try {
+        // Stage 1: Generate search terms
+        console.log('[research] Stage 1: generating search terms...')
+        const { searchTerms, audienceSummary } = await generateSearchTerms(
+          sanitizeInput(audienceDescription),
+          transcript ? sanitizeInput(transcript) : undefined,
+          topic ? sanitizeInput(topic) : undefined,
+          goal ? sanitizeInput(goal) : undefined,
+          additionalContext ? sanitizeInput(additionalContext) : undefined,
+        )
+        console.log('[research] Stage 1 complete:', { audienceSummary, searchTerms })
+
+        send('terms', { searchTerms, audienceSummary })
+
+        // Stage 2: Conduct web research
+        console.log('[research] Stage 2: conducting web research...')
+        const researchContext = await conductResearch(searchTerms, audienceSummary, goal)
+        console.log('[research] Stage 2 complete:', researchContext.slice(0, 200) + '...')
+
+        send('complete', { researchContext, audienceSummary, searchTerms })
+      } catch (error) {
+        console.error('Research pipeline error:', error)
+        send('error', { error: 'Research failed. Coaching will proceed without enrichment.' })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
 }

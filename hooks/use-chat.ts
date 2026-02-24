@@ -45,6 +45,7 @@ export function useChat(authToken?: string | null) {
   const [isCompressing, setIsCompressing] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [isResearching, setIsResearching] = useState(false)
+  const [researchSearchTerms, setResearchSearchTerms] = useState<string[] | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [trialMessagesRemaining, setTrialMessagesRemaining] = useState<
@@ -258,8 +259,9 @@ export function useChat(authToken?: string | null) {
   )
 
   const startResearchEarly = useCallback(
-    async (audience: string, topic?: string) => {
+    async (audience: string, opts?: { topic?: string; goal?: string; additionalContext?: string }) => {
       setIsResearching(true)
+      setResearchSearchTerms(null)
       try {
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -274,7 +276,9 @@ export function useChat(authToken?: string | null) {
           headers,
           body: JSON.stringify({
             audienceDescription: audience,
-            topic: topic || undefined,
+            topic: opts?.topic || undefined,
+            goal: opts?.goal || undefined,
+            additionalContext: opts?.additionalContext || undefined,
           }),
         })
 
@@ -283,21 +287,48 @@ export function useChat(authToken?: string | null) {
           return null
         }
 
-        const data = await response.json()
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let result: string | null = null
 
-        setResearchContext(data.researchContext)
-        researchContextRef.current = data.researchContext
-        setResearchMeta({
-          searchTerms: data.searchTerms,
-          audienceSummary: data.audienceSummary,
-          briefing: data.researchContext,
-        })
-        return data.researchContext as string
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.event === 'terms') {
+                setResearchSearchTerms(data.searchTerms)
+              } else if (data.event === 'complete') {
+                setResearchContext(data.researchContext)
+                researchContextRef.current = data.researchContext
+                setResearchMeta({
+                  searchTerms: data.searchTerms,
+                  audienceSummary: data.audienceSummary,
+                  briefing: data.researchContext,
+                })
+                result = data.researchContext
+              }
+            } catch {
+              // Skip malformed chunks
+            }
+          }
+        }
+
+        return result
       } catch {
         console.warn('[research] Early research error, proceeding without enrichment')
         return null
       } finally {
         setIsResearching(false)
+        setResearchSearchTerms(null)
       }
     },
     []
@@ -306,6 +337,7 @@ export function useChat(authToken?: string | null) {
   const runResearchPipeline = useCallback(
     async (currentTranscript: string, currentMessages: Message[]) => {
       setIsResearching(true)
+      setResearchSearchTerms(null)
       try {
         // Extract audience description from user text messages after the upload
         const uploadIndex = currentMessages.findIndex((m) => m.attachment)
@@ -328,12 +360,16 @@ export function useChat(authToken?: string | null) {
           headers['Authorization'] = `Bearer ${token}`
         }
 
+        const setup = setupContextRef.current
         const response = await fetch('/api/research', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             transcript: currentTranscript,
             audienceDescription,
+            topic: setup?.topic || undefined,
+            goal: setup?.goal || undefined,
+            additionalContext: setup?.additionalContext || undefined,
           }),
         })
 
@@ -342,27 +378,48 @@ export function useChat(authToken?: string | null) {
           return null
         }
 
-        const data = await response.json()
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let result: string | null = null
 
-        console.log('[research] Pipeline complete:', {
-          audienceSummary: data.audienceSummary,
-          searchTerms: data.searchTerms,
-          briefingLength: data.researchContext?.length,
-        })
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
 
-        setResearchContext(data.researchContext)
-        researchContextRef.current = data.researchContext
-        setResearchMeta({
-          searchTerms: data.searchTerms,
-          audienceSummary: data.audienceSummary,
-          briefing: data.researchContext,
-        })
-        return data.researchContext as string
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.event === 'terms') {
+                setResearchSearchTerms(data.searchTerms)
+              } else if (data.event === 'complete') {
+                setResearchContext(data.researchContext)
+                researchContextRef.current = data.researchContext
+                setResearchMeta({
+                  searchTerms: data.searchTerms,
+                  audienceSummary: data.audienceSummary,
+                  briefing: data.researchContext,
+                })
+                result = data.researchContext
+              }
+            } catch {
+              // Skip malformed chunks
+            }
+          }
+        }
+
+        return result
       } catch {
         console.warn('[research] Pipeline error, proceeding without enrichment')
         return null
       } finally {
         setIsResearching(false)
+        setResearchSearchTerms(null)
       }
     },
     []
@@ -416,13 +473,8 @@ export function useChat(authToken?: string | null) {
       setupContextRef.current = context
       setStage('present')
       stageRef.current = 'present'
-
-      // Fire early research if audience is provided
-      if (context.audience) {
-        startResearchEarly(context.audience, context.topic)
-      }
     },
-    [startResearchEarly]
+    []
   )
 
   const finishPresentation = useCallback(
@@ -597,6 +649,7 @@ export function useChat(authToken?: string | null) {
     setTranscript(null)
     setResearchContext(null)
     setResearchMeta(null)
+    setResearchSearchTerms(null)
     setSlideContext(null)
     researchContextRef.current = null
     slideContextRef.current = null
@@ -618,6 +671,7 @@ export function useChat(authToken?: string | null) {
     transcript,
     researchContext,
     researchMeta,
+    researchSearchTerms,
     slideContext,
     isCompressing,
     isTranscribing,

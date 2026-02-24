@@ -621,11 +621,6 @@ export function ChatInterface({
                     Describe your audience and Vera will simulate them, giving you
                     feedback that feels human.
                   </p>
-                  {isTrialMode && (
-                    <p className="mt-2 text-xs text-primary sm:text-sm">
-                      Try 4 free messages — no account needed
-                    </p>
-                  )}
                 </FadeIn>
 
                 <FadeIn delay={0.25}>
