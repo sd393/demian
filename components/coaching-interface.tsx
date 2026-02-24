@@ -772,7 +772,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     }
   }
 
-  const hasSetupContent = !!(setupTopic.trim() || setupAudience.trim() || setupGoal.trim())
+  const hasSetupContent = !!(setupTopic.trim() && setupAudience.trim() && setupGoal.trim())
 
   function handleSetupKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && hasSetupContent) {
@@ -1005,26 +1005,55 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                         </div>
                       </FadeIn>
 
-                      {/* Optional additional context — fixed-size container, no displacement */}
+                      {/* Optional additional context */}
                       <FadeIn delay={0.15}>
                         <div className="mt-6 flex justify-center">
-                          <div className="relative h-12 w-full max-w-sm">
-                            <button
-                              type="button"
-                              onClick={() => setShowAdditional(true)}
-                              className={`absolute inset-0 z-10 flex items-start justify-center pt-1 font-display text-xs text-muted-foreground/50 transition-opacity duration-300 hover:text-muted-foreground ${showAdditional ? "pointer-events-none opacity-0" : "opacity-100"}`}
-                            >
-                              + Add more context
-                            </button>
-                            <textarea
-                              value={setupAdditional}
-                              onChange={(e) => setSetupAdditional(e.target.value)}
-                              onKeyDown={handleSetupKeyDown}
-                              placeholder="Anything else Vera should know"
-                              rows={2}
-                              className={`h-full w-full resize-none rounded-lg border bg-transparent px-3 py-2 font-display text-xs text-foreground placeholder:text-muted-foreground/30 focus:outline-none transition-all duration-300 ${showAdditional ? "border-border/40 opacity-100 focus:border-primary/30 focus:ring-1 focus:ring-primary/20" : "pointer-events-none border-transparent opacity-0"}`}
-                            />
-                          </div>
+                          <AnimatePresence mode="wait">
+                            {!showAdditional ? (
+                              <motion.button
+                                key="add-btn"
+                                type="button"
+                                onClick={() => setShowAdditional(true)}
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.2, ease: "easeInOut" }}
+                                className="font-display text-xs text-muted-foreground/50 transition-colors duration-300 hover:text-muted-foreground"
+                              >
+                                + Add more context
+                              </motion.button>
+                            ) : (
+                              <motion.div
+                                key="add-input"
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.2, ease: "easeInOut" }}
+                                className="font-display text-center text-lg text-muted-foreground sm:text-xl md:text-2xl"
+                              >
+                                <span className="relative inline-block pb-1" style={{ minWidth: 200 }}>
+                                  <span className="invisible whitespace-pre px-1">
+                                    {setupAdditional || "Anything else Vera should know"}
+                                  </span>
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={setupAdditional}
+                                    onChange={(e) => setSetupAdditional(e.target.value)}
+                                    onKeyDown={handleSetupKeyDown}
+                                    onBlur={() => { if (!setupAdditional.trim()) setShowAdditional(false) }}
+                                    placeholder="Anything else Vera should know"
+                                    className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none placeholder:text-muted-foreground/30"
+                                  />
+                                  <motion.span
+                                    className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
+                                    animate={{ width: "calc(100% + 20px)" }}
+                                    transition={{ duration: 0.35, ease: "easeInOut" }}
+                                  />
+                                </span>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </FadeIn>
 
