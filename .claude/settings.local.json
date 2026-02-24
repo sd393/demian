@@ -8,7 +8,13 @@
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
       "Bash(git stash pop:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(curl:*)",
+      "Bash(timeout 15 npx ts-node:*)",
+      "Bash(node:*)",
+      "Bash(python3:*)",
+      "Bash(git log:*)",
+      "Bash(pnpm build:*)"
     ]
   }
 }
