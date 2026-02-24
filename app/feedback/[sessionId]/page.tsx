@@ -2,17 +2,21 @@
 
 import { useEffect, useState, useRef, use } from "react"
 import { useRouter } from "next/navigation"
-import { Loader2, ChevronDown, FileText } from "lucide-react"
+import { ArrowLeft, Loader2, ChevronDown, FileText } from "lucide-react"
 import { motion } from "framer-motion"
+import ReactMarkdown from "react-markdown"
 import { useAuth } from "@/contexts/auth-context"
-import { getSession, type SessionDocument, type SessionScores } from "@/lib/sessions"
-import { FeedbackHeader } from "@/components/feedback/feedback-header"
-import { ScoreRadar } from "@/components/feedback/score-radar"
-import { CategoryGrid } from "@/components/feedback/category-grid"
-import { CategoryDetail } from "@/components/feedback/category-detail"
-import { AudienceJourney } from "@/components/feedback/audience-journey"
-import { KeyMoments } from "@/components/feedback/key-moments"
-import { ActionItems } from "@/components/feedback/action-items"
+import {
+  getSession,
+  isV2Scores,
+  type SessionDocument,
+  type SessionScoresV2,
+} from "@/lib/sessions"
+import { FeedbackLetter } from "@/components/feedback/feedback-letter"
+import { RubricRadar } from "@/components/feedback/rubric-radar"
+import { RubricDetail } from "@/components/feedback/rubric-detail"
+import { FollowUpChat } from "@/components/feedback/follow-up-chat"
+import { useFollowUpChat } from "@/hooks/use-follow-up-chat"
 
 const SCORE_POLL_INTERVAL = 3000
 const SCORE_POLL_MAX_ATTEMPTS = 20
@@ -24,7 +28,14 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
   const [session, setSession] = useState<(SessionDocument & { id: string }) | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [authToken, setAuthToken] = useState<string | null>(null)
   const pollCount = useRef(0)
+
+  // Get auth token for follow-up chat
+  useEffect(() => {
+    if (!user) return
+    user.getIdToken().then(setAuthToken).catch(() => {})
+  }, [user])
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -82,6 +93,17 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
     return () => clearInterval(interval)
   }, [session, sessionId, user])
 
+  // Follow-up chat hook
+  const followUp = useFollowUpChat({
+    authToken: authToken ?? "",
+    transcript: session?.transcript ?? null,
+    researchContext: session?.researchContext ?? null,
+    slideContext: session?.slideReview && "raw" in session.slideReview
+      ? (session.slideReview as { raw: string }).raw
+      : null,
+    setupContext: session?.setup ?? null,
+  })
+
   if (authLoading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -104,10 +126,20 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
     )
   }
 
-  const scores: SessionScores | null = session.scores
+  const scores = session.scores
+  const isV2 = scores && isV2Scores(scores)
+  const v2Scores = isV2 ? (scores as SessionScoresV2) : null
+  const date = session.createdAt?.toDate?.() ?? new Date()
+
+  // Show refined AI values when available, raw values for old sessions that have
+  // scores but lack refined fields, and null (skeleton) while scores are still loading.
+  const hasScores = !!scores
+  const headerTitle = v2Scores?.refinedTitle ?? (hasScores ? session.setup.topic : null)
+  const headerAudience = v2Scores?.refinedAudience ?? (hasScores ? session.setup.audience : null)
+  const headerGoal = v2Scores?.refinedGoal ?? (hasScores ? session.setup.goal : null)
 
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-screen bg-background pb-24">
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
         <div
@@ -121,81 +153,104 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
       </div>
 
       <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-        {/* ── Header with score ring ── */}
-        <FeedbackHeader
-          topic={session.setup.topic}
-          audience={session.setup.audience}
-          goal={session.setup.goal}
-          date={session.createdAt?.toDate?.() ?? new Date()}
-          overallScore={scores?.overall ?? null}
-        />
+        {/* ── Header ── */}
+        <header>
+          <button
+            type="button"
+            onClick={() => router.push("/chat")}
+            className="mb-6 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to chat
+          </button>
 
-        {/* ── Score content ── */}
-        {scores ? (
-          <div className="mt-12 space-y-12">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {headerTitle ? (
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                {headerTitle}
+              </h1>
+            ) : (
+              <div className="h-8 w-2/3 animate-pulse rounded-lg bg-muted/40" />
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {headerAudience ? (
+                <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                  {headerAudience}
+                </span>
+              ) : (
+                <span className="inline-block h-6 w-28 animate-pulse rounded-full bg-muted/40" />
+              )}
+              {headerGoal ? (
+                <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                  {headerGoal}
+                </span>
+              ) : (
+                <span className="inline-block h-6 w-24 animate-pulse rounded-full bg-muted/40" />
+              )}
+              <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                {date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </span>
+            </div>
+          </motion.div>
+        </header>
 
-            {/* Section: Performance Breakdown */}
-            <Section title="Performance Breakdown" delay={0}>
-              <div className="rounded-xl border border-border/60 bg-card p-5">
-                <ScoreRadar categories={scores.categories} />
-              </div>
-              <div className="mt-4">
-                <CategoryGrid categories={scores.categories} />
-              </div>
-            </Section>
+        {/* ── Content ── */}
+        <div className="mt-12 space-y-12">
+          {isV2 && v2Scores ? (
+            <>
+              {/* Feedback Letter */}
+              <FeedbackLetter letter={v2Scores.feedbackLetter} />
 
-            {/* Section: Key Moments */}
-            <Section title="Key Moments" delay={0.05}>
-              <KeyMoments keyMoments={scores.keyMoments} />
-            </Section>
-
-            {/* Section: Audience Reaction (conditional) */}
-            {session.audiencePulse.length > 0 && (
-              <Section title="Audience Reaction" delay={0.1}>
+              {/* Rubric Section */}
+              <motion.section
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+              >
                 <div className="rounded-xl border border-border/60 bg-card p-5">
-                  <AudienceJourney pulseLabels={session.audiencePulse} />
+                  <RubricRadar rubric={v2Scores.rubric} />
                 </div>
-              </Section>
-            )}
+                <div className="mt-4">
+                  <RubricDetail
+                    rubric={v2Scores.rubric}
+                    strongestMoment={v2Scores.strongestMoment}
+                    areaToImprove={v2Scores.areaToImprove}
+                  />
+                </div>
+              </motion.section>
+            </>
+          ) : scores ? (
+            /* V1 backward compat: render last assistant message as markdown */
+            <V1Fallback session={session} />
+          ) : (
+            /* Loading state while scores generate */
+            <ScoresLoadingState />
+          )}
 
-            {/* Section: Detailed Analysis */}
-            <Section title="Detailed Analysis" delay={0.15}>
-              <CategoryDetail categories={scores.categories} />
-            </Section>
+          {/* Transcript (collapsible) */}
+          {session.transcript && (
+            <TranscriptSection transcript={session.transcript} />
+          )}
 
-            {/* Section: Next Steps */}
-            <Section title="Next Steps" delay={0.2}>
-              <ActionItems actionItems={scores.actionItems} />
-            </Section>
-
-            {/* Transcript (collapsible) */}
-            {session.transcript && (
-              <TranscriptSection transcript={session.transcript} />
-            )}
-          </div>
-        ) : (
-          /* Loading state while scores generate */
-          <div className="mt-16">
-            <div className="flex flex-col items-center gap-4 py-16">
-              <div className="relative">
-                <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-muted border-t-primary" />
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-medium text-foreground/80">Analyzing your presentation</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Vera is scoring your performance across 6 dimensions...
-                </p>
-              </div>
-            </div>
-
-            {/* Skeleton placeholders */}
-            <div className="mt-8 space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-20 animate-pulse rounded-xl bg-muted/40" />
-              ))}
-            </div>
-          </div>
-        )}
+          {/* Follow-up chat */}
+          {authToken && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <FollowUpChat
+                messages={followUp.messages}
+                isStreaming={followUp.isStreaming}
+                onSend={followUp.sendMessage}
+              />
+            </motion.section>
+          )}
+        </div>
 
         {/* Footer */}
         <div className="mt-16 border-t border-border/40 pt-8 text-center">
@@ -211,27 +266,57 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
   )
 }
 
-/* ── Section wrapper with label + stagger ── */
-function Section({
-  title,
-  delay = 0,
-  children,
-}: {
-  title: string
-  delay?: number
-  children: React.ReactNode
-}) {
+/* ── V1 backward compat ── */
+function V1Fallback({ session }: { session: SessionDocument }) {
+  // Find the last assistant message (the feedback) to render
+  const feedbackMessage = [...session.messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content.length > 100)
+
+  if (!feedbackMessage) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No feedback available for this session.
+      </p>
+    )
+  }
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
     >
-      <h2 className="mb-5 font-display text-xs font-semibold uppercase tracking-[0.15em] text-primary/70">
-        {title}
-      </h2>
-      {children}
+      <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70">
+        <ReactMarkdown>{feedbackMessage.content}</ReactMarkdown>
+      </div>
     </motion.section>
+  )
+}
+
+/* ── Scores loading state ── */
+function ScoresLoadingState() {
+  return (
+    <div className="mt-16">
+      <div className="flex flex-col items-center gap-4 py-16">
+        <div className="relative">
+          <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-muted border-t-primary" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-medium text-foreground/80">Analyzing your presentation</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Vera is writing up her thoughts...
+          </p>
+        </div>
+      </div>
+
+      {/* Skeleton placeholders */}
+      <div className="mt-8 space-y-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-20 animate-pulse rounded-xl bg-muted/40" />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -243,7 +328,7 @@ function TranscriptSection({ transcript }: { transcript: string }) {
     <motion.section
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.45, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
     >
       <button
         type="button"

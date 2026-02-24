@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { openai } from "@/backend/openai"
 import { requireAuth } from "@/backend/auth"
 import { z } from "zod"
-import type { SessionScores } from "@/lib/sessions"
+import type { SessionScoresV2 } from "@/lib/sessions"
 
 const feedbackScoreRequestSchema = z.object({
   sessionId: z.string().min(1),
@@ -27,7 +27,7 @@ const feedbackScoreRequestSchema = z.object({
 
 function buildScoringPrompt(input: z.infer<typeof feedbackScoreRequestSchema>): string {
   const parts: string[] = [
-    `You are scoring a presentation as if you ARE the audience: ${input.setup.audience}.`,
+    `You are Vera — you just sat through a presentation as this audience: ${input.setup.audience}.`,
     `The presenter's topic: ${input.setup.topic}`,
     `Their goal: ${input.setup.goal}`,
   ]
@@ -58,48 +58,72 @@ function buildScoringPrompt(input: z.infer<typeof feedbackScoreRequestSchema>): 
   }
 
   parts.push(`
-Score this presentation on the following 6 categories. For each, provide a score from 0-100, a 2-3 sentence summary, specific transcript quotes as evidence, and one concrete suggestion for improvement.
+Your job is to produce a structured evaluation of this presentation. Respond with valid JSON.
+
+STEP 1 — FEEDBACK LETTER
+Write a feedback letter (3-5 paragraphs) as Vera speaking directly to the presenter. Written in first person, in character as the audience. Include what landed, what didn't, and naturally weave in one strong point and one area for improvement. Paragraph form — no headers, no bullet points, no markdown formatting. Just honest, direct prose like you're talking to them afterward.
+
+STEP 2 — DYNAMIC RUBRIC
+Generate 4-6 rubric criteria that are SPECIFIC to this audience and goal. Do NOT use generic categories like "clarity" or "engagement". Instead, choose criteria that reflect what THIS audience actually cares about.
+
+Examples:
+- For VC investors: "Market Opportunity Clarity", "Traction Evidence", "Team Credibility", "Ask & Use of Funds"
+- For a school board: "Policy Alignment", "Budget Justification", "Community Impact", "Implementation Feasibility"
+- For an engineering team: "Technical Accuracy", "Scope Definition", "Risk Assessment", "Timeline Realism"
+
+You choose the criteria based on the audience, goal, and what actually matters to them.
+
+STEP 3 — SCORING
+Score each criterion 0-100 with a 2-3 sentence summary and 1-3 direct transcript quotes as evidence.
+
+For EACH criterion, also provide "descriptors" — a one-sentence description of what each scoring tier looks like for that specific criterion. This turns the rubric into a proper scoring guide so the presenter understands what each level means.
+
+Scoring tiers:
+- Exceptional (85-100): What outstanding performance looks like for this criterion
+- Proficient (70-84): What solid, competent performance looks like
+- Developing (50-69): What average or incomplete performance looks like
+- Needs Work (0-49): What poor or missing performance looks like
 
 Calibration guide:
-- 50 = average presenter (gets the point across but nothing special)
-- 70 = good (clear, organized, engages audience)
-- 85+ = exceptional (compelling, memorable, masterful delivery)
+- 50 = average (gets the point across but nothing special)
+- 70 = good (clear, organized, effective for this audience)
+- 85+ = exceptional (compelling, memorable, this audience walks away convinced)
 
 Score as the specified audience — what matters to THEM, not a generic coach.
 
-Categories:
-1. clarity — How clear and understandable was the message?
-2. structure — How well-organized was the flow and progression?
-3. engagement — How well did it hold audience attention?
-4. persuasiveness — How convincing were the arguments and evidence?
-5. audienceAlignment — How well-tailored was it to this specific audience?
-6. delivery — How effective was the speaking style, pacing, and tone?
+STEP 4 — HIGHLIGHTS
+Identify:
+- The strongest moment: a direct transcript quote + why it worked for this audience
+- One area to improve: a specific issue + a concrete, actionable suggestion
 
-Also identify:
-- The strongest moment (direct quote + why it worked)
-- The weakest moment (direct quote + why it fell flat)
-- 3 prioritized action items (title, description, impact: high or medium)
+STEP 5 — REFINED METADATA
+Generate polished, concise versions of the presentation metadata:
+- refinedTitle: A clean, professional title for this presentation (not the raw user input — refine it)
+- refinedAudience: A short, polished audience label (e.g. "Series A Venture Capitalists" instead of "vcs")
+- refinedGoal: A short, polished goal label (e.g. "Secure Seed Funding" instead of "get funding")
 
 Respond with valid JSON matching this exact schema:
 {
-  "overall": <number 0-100>,
-  "categories": {
-    "clarity": { "score": <number>, "summary": "<string>", "evidence": ["<quote>", ...], "suggestion": "<string>" },
-    "structure": { "score": <number>, "summary": "<string>", "evidence": ["<quote>", ...], "suggestion": "<string>" },
-    "engagement": { "score": <number>, "summary": "<string>", "evidence": ["<quote>", ...], "suggestion": "<string>" },
-    "persuasiveness": { "score": <number>, "summary": "<string>", "evidence": ["<quote>", ...], "suggestion": "<string>" },
-    "audienceAlignment": { "score": <number>, "summary": "<string>", "evidence": ["<quote>", ...], "suggestion": "<string>" },
-    "delivery": { "score": <number>, "summary": "<string>", "evidence": ["<quote>", ...], "suggestion": "<string>" }
-  },
-  "keyMoments": {
-    "strongest": { "quote": "<string>", "why": "<string>" },
-    "weakest": { "quote": "<string>", "why": "<string>" }
-  },
-  "actionItems": [
-    { "priority": 1, "title": "<string>", "description": "<string>", "impact": "high" | "medium" },
-    { "priority": 2, "title": "<string>", "description": "<string>", "impact": "high" | "medium" },
-    { "priority": 3, "title": "<string>", "description": "<string>", "impact": "high" | "medium" }
-  ]
+  "feedbackLetter": "<string — 3-5 paragraphs, no markdown, plain prose>",
+  "rubric": [
+    {
+      "name": "<criterion name>",
+      "score": <number 0-100>,
+      "summary": "<2-3 sentences>",
+      "evidence": ["<transcript quote>", ...],
+      "descriptors": {
+        "exceptional": "<one sentence: what 85-100 looks like for this criterion>",
+        "proficient": "<one sentence: what 70-84 looks like>",
+        "developing": "<one sentence: what 50-69 looks like>",
+        "needsWork": "<one sentence: what 0-49 looks like>"
+      }
+    }
+  ],
+  "strongestMoment": { "quote": "<direct transcript quote>", "why": "<why it worked>" },
+  "areaToImprove": { "issue": "<specific issue>", "suggestion": "<concrete actionable suggestion>" },
+  "refinedTitle": "<polished presentation title>",
+  "refinedAudience": "<polished audience label>",
+  "refinedGoal": "<polished goal label>"
 }`)
 
   return parts.join("\n")
@@ -127,7 +151,7 @@ export async function handleFeedbackScore(request: NextRequest) {
       messages: [{ role: "system", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.3,
-      max_tokens: 4000,
+      max_tokens: 5000,
     })
 
     const content = completion.choices[0]?.message?.content
@@ -138,7 +162,7 @@ export async function handleFeedbackScore(request: NextRequest) {
       )
     }
 
-    const scores: SessionScores = JSON.parse(content)
+    const scores: SessionScoresV2 = JSON.parse(content)
 
     return new Response(
       JSON.stringify({ sessionId: parsed.data.sessionId, scores }),

@@ -14,7 +14,7 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
-/* ── Score types ── */
+/* ── Score types (V1 — legacy, kept for backward compat) ── */
 
 export interface CategoryScore {
   score: number // 0-100
@@ -45,6 +45,36 @@ export interface SessionScores {
   }[]
 }
 
+/* ── Score types (V2 — letter + dynamic rubric) ── */
+
+export interface RubricCriterion {
+  name: string          // e.g. "Traction Evidence" or "ROI Clarity"
+  score: number         // 0-100
+  summary: string       // 2-3 sentences
+  evidence: string[]    // transcript quotes
+  descriptors?: {       // what each scoring tier means for this criterion
+    exceptional: string
+    proficient: string
+    developing: string
+    needsWork: string
+  }
+}
+
+export interface SessionScoresV2 {
+  feedbackLetter: string      // full markdown letter from Vera
+  rubric: RubricCriterion[]   // 4-6 audience-specific criteria
+  strongestMoment: { quote: string; why: string }
+  areaToImprove: { issue: string; suggestion: string }
+  refinedTitle?: string       // AI-polished presentation title
+  refinedAudience?: string    // AI-polished audience description
+  refinedGoal?: string        // AI-polished goal description
+}
+
+/** Type guard: V2 scores have a `feedbackLetter` property. */
+export function isV2Scores(scores: SessionScores | SessionScoresV2): scores is SessionScoresV2 {
+  return "feedbackLetter" in scores
+}
+
 /* ── Session document ── */
 
 export interface SessionDocument {
@@ -61,7 +91,7 @@ export interface SessionDocument {
   audiencePulse: { text: string; emotion: string }[]
   slideReview: object | null
   researchContext: string | null
-  scores: SessionScores | null
+  scores: SessionScores | SessionScoresV2 | null
 }
 
 export interface SessionSummary {
@@ -101,7 +131,7 @@ export async function getSession(
 
 export async function updateSessionScores(
   sessionId: string,
-  scores: SessionScores
+  scores: SessionScores | SessionScoresV2
 ): Promise<void> {
   const ref = doc(db, SESSIONS_COLLECTION, sessionId)
   await updateDoc(ref, { scores })
@@ -125,7 +155,7 @@ export async function listSessions(
       topic: data.setup.topic,
       audience: data.setup.audience,
       date: data.createdAt?.toDate() ?? new Date(),
-      overallScore: data.scores?.overall ?? null,
+      overallScore: data.scores && "overall" in data.scores ? data.scores.overall : null,
     }
   })
 }

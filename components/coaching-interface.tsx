@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useEffect, useLayoutEffect, type FormEvent } from "react"
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
 import {
@@ -21,7 +21,7 @@ import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "sonner"
 
 import { useAuth } from "@/contexts/auth-context"
-import { saveSession, updateSessionScores, type SessionScores } from "@/lib/sessions"
+import { saveSession, updateSessionScores, type SessionScores, type SessionScoresV2 } from "@/lib/sessions"
 import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
@@ -127,6 +127,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const [showTrialDialog, setShowTrialDialog] = useState(false)
   const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
   const sessionSaveTriggered = useRef(false)
+  const [navigatingToFeedback, setNavigatingToFeedback] = useState(false)
   const [presentationMode, setPresentationMode] = useState(false)
   const presentationCommittedRef = useRef(false)
   const pendingUploadRef = useRef(false)
@@ -182,14 +183,28 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const [blankWidths, setBlankWidths] = useState({ topic: 0, audience: 0, goal: 0 })
 
   const hasMeasuredRef = useRef(false)
-  useLayoutEffect(() => {
+
+  const measureWidths = useCallback(() => {
     setBlankWidths({
       topic: topicSizerRef.current?.offsetWidth ?? 0,
       audience: audienceSizerRef.current?.offsetWidth ?? 0,
       goal: goalSizerRef.current?.offsetWidth ?? 0,
     })
-    hasMeasuredRef.current = true
-  }, [setupTopic, setupAudience, setupGoal, sizerIndex])
+  }, [])
+
+  useLayoutEffect(() => {
+    measureWidths()
+  }, [setupTopic, setupAudience, setupGoal, sizerIndex, measureWidths])
+
+  // Enable animated transitions only after the first paint so the
+  // initial measurement snaps instantly instead of animating in.
+  useEffect(() => { hasMeasuredRef.current = true }, [])
+
+  // Re-measure once custom fonts finish loading — the fallback font
+  // has different metrics, which makes the underlines the wrong width.
+  useEffect(() => {
+    document.fonts.ready.then(measureWidths)
+  }, [measureWidths])
 
   /* ── Satisfied window + audience pulse ── */
   const [satisfiedWindow, setSatisfiedWindow] = useState(false)
@@ -361,10 +376,12 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   async function saveAndNavigateToFeedback() {
     if (sessionSaveTriggered.current) return
     sessionSaveTriggered.current = true
+    setNavigatingToFeedback(true)
 
     if (!user) {
       toast.error("You must be logged in to save a session")
       sessionSaveTriggered.current = false
+      setNavigatingToFeedback(false)
       return
     }
 
@@ -392,7 +409,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       audiencePulse: audiencePulseHistory,
       slideReview: slideContext ? { raw: slideContext } : null,
       researchContext: researchContext ?? null,
-      scores: null as SessionScores | null,
+      scores: null as SessionScores | SessionScoresV2 | null,
     }
 
     let sessionId: string
@@ -403,6 +420,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       console.error("[session-save] Firestore save failed:", err)
       toast.error(`Failed to save session: ${msg}`)
       sessionSaveTriggered.current = false
+      setNavigatingToFeedback(false)
       return
     }
 
@@ -429,7 +447,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
         .then(async (res) => {
           if (res.ok) {
             const { scores } = await res.json()
-            await updateSessionScores(sessionId, scores as SessionScores)
+            await updateSessionScores(sessionId, scores as SessionScoresV2)
           }
         })
         .catch((err) => console.warn("[feedback-score] Scoring failed:", err))
@@ -1523,6 +1541,22 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       {/* Hidden file inputs */}
       <input ref={fileInputRef} type="file" accept="video/*,audio/*,.pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Upload video, audio, or PDF" />
       <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePdfUpload} className="hidden" aria-label="Upload PDF slides" />
+
+      {/* Transition overlay — covers everything instantly to prevent flash */}
+      <AnimatePresence>
+        {navigatingToFeedback && (
+          <motion.div
+            key="feedback-transition"
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
+            <p className="mt-4 text-sm text-muted-foreground">Preparing your feedback...</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Trial limit dialog */}
       <Dialog open={showTrialDialog} onOpenChange={setShowTrialDialog}>
