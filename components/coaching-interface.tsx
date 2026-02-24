@@ -108,7 +108,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     stage, transcript, setupContext: chatSetupContext, slideContext,
     audiencePulseHistory, appendPulseLabels,
     sendMessage, uploadFile, addMessage, setSlideContext, clearError,
-    startPresentation, finishPresentation, skipToFeedback, startResearchEarly,
+    startPresentation, finishPresentation, startResearchEarly,
   } = useChat(authToken)
 
   const { user } = useAuth()
@@ -357,69 +357,91 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     prevStageRef.current = stage
   }, [stage, messages, feedbackMessageId])
 
-  // Save session to Firestore when feedback completes (stage → followup)
-  useEffect(() => {
-    if (stage !== "followup") return
+  // Save session to Firestore and navigate to the dedicated feedback page.
+  async function saveAndNavigateToFeedback() {
     if (sessionSaveTriggered.current) return
-    if (!user) return
-    if (!chatSetupContext?.topic || !chatSetupContext?.audience || !chatSetupContext?.goal) return
-
     sessionSaveTriggered.current = true
+
+    if (!user) {
+      toast.error("You must be logged in to save a session")
+      sessionSaveTriggered.current = false
+      return
+    }
+
+    const topic = chatSetupContext?.topic || setupTopic.trim() || "Untitled presentation"
+    const audience = chatSetupContext?.audience || setupAudience.trim() || "General audience"
+    const goal = chatSetupContext?.goal || setupGoal.trim() || "Deliver effectively"
+    const additionalContext = chatSetupContext?.additionalContext || setupAdditional.trim() || undefined
+
+    const setup = {
+      topic,
+      audience,
+      goal,
+      ...(additionalContext ? { additionalContext } : {}),
+    }
 
     const strippedMessages = messages
       .filter((m) => m.content.trim())
       .map((m) => ({ role: m.role, content: m.content }))
 
-    const sessionData = {
+    const sessionPayload = {
       userId: user.uid,
-      setup: {
-        topic: chatSetupContext.topic,
-        audience: chatSetupContext.audience,
-        goal: chatSetupContext.goal,
-        ...(chatSetupContext.additionalContext ? { additionalContext: chatSetupContext.additionalContext } : {}),
-      },
+      setup,
       transcript: transcript ?? null,
       messages: strippedMessages,
       audiencePulse: audiencePulseHistory,
       slideReview: slideContext ? { raw: slideContext } : null,
       researchContext: researchContext ?? null,
-      scores: null,
+      scores: null as SessionScores | null,
     }
 
-    saveSession(sessionData).then(async (sessionId) => {
-      // Navigate to feedback page immediately — scores will load asynchronously
-      router.push(`/feedback/${sessionId}`)
+    let sessionId: string
+    try {
+      sessionId = await saveSession(sessionPayload)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[session-save] Firestore save failed:", err)
+      toast.error(`Failed to save session: ${msg}`)
+      sessionSaveTriggered.current = false
+      return
+    }
 
-      // Fire off scoring API call in the background
-      try {
-        const token = await user.getIdToken()
-        const res = await fetch("/api/feedback-score", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            sessionId,
-            transcript: transcript ?? undefined,
-            setup: sessionData.setup,
-            messages: strippedMessages,
-            researchContext: researchContext ?? undefined,
-            slideContext: slideContext ?? undefined,
-          }),
+    // Navigate to feedback page
+    router.push(`/feedback/${sessionId}`)
+
+    // Fire scoring API in background
+    user.getIdToken().then((token) => {
+      fetch("/api/feedback-score", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          sessionId,
+          transcript: transcript ?? undefined,
+          setup,
+          messages: strippedMessages,
+          researchContext: researchContext ?? undefined,
+          slideContext: slideContext ?? undefined,
+        }),
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const { scores } = await res.json()
+            await updateSessionScores(sessionId, scores as SessionScores)
+          }
         })
-
-        if (res.ok) {
-          const { scores } = await res.json()
-          await updateSessionScores(sessionId, scores as SessionScores)
-        }
-      } catch (err) {
-        console.warn("[feedback-score] Scoring failed:", err)
-      }
-    }).catch((err) => {
-      console.warn("[session-save] Failed to save session:", err)
+        .catch((err) => console.warn("[feedback-score] Scoring failed:", err))
     })
-  }, [stage, user, chatSetupContext, messages, transcript, audiencePulseHistory, slideContext, researchContext])
+  }
+
+  // When the Q&A auto-completes (stage → followup), save and navigate
+  useEffect(() => {
+    if (stage === "followup" && !sessionSaveTriggered.current) {
+      saveAndNavigateToFeedback()
+    }
+  }, [stage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Effects ── */
   useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])
@@ -603,7 +625,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       return
     }
     if (text === "__SKIP_TO_FEEDBACK__") {
-      skipToFeedback()
+      saveAndNavigateToFeedback()
       return
     }
     if (text === "__UPLOAD_ANOTHER__") {
@@ -1440,7 +1462,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                       onClick={() => {
                         setPresentationMode(false)
                         stopSpeaking()
-                        finishPresentation()
+                        saveAndNavigateToFeedback()
                       }}
                       className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-2.5 text-sm text-primary/80 hover:bg-primary/10 hover:text-primary transition-colors"
                     >

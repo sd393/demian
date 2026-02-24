@@ -1,5 +1,7 @@
 "use client"
 
+import { motion } from "framer-motion"
+
 const EMOTION_COLORS: Record<string, string> = {
   neutral: "hsl(var(--muted-foreground))",
   interested: "hsl(36 72% 50%)",
@@ -11,6 +13,17 @@ const EMOTION_COLORS: Record<string, string> = {
   bored: "hsl(var(--muted-foreground) / 0.5)",
 }
 
+const EMOTION_LABELS: Record<string, string> = {
+  neutral: "Neutral",
+  interested: "Interested",
+  skeptical: "Skeptical",
+  confused: "Confused",
+  amused: "Amused",
+  impressed: "Impressed",
+  concerned: "Concerned",
+  bored: "Disengaged",
+}
+
 interface AudienceJourneyProps {
   pulseLabels: { text: string; emotion: string }[]
 }
@@ -18,36 +31,53 @@ interface AudienceJourneyProps {
 export function AudienceJourney({ pulseLabels }: AudienceJourneyProps) {
   if (pulseLabels.length === 0) return null
 
-  // Find dominant emotion
+  // Count emotions for distribution
   const emotionCounts = new Map<string, number>()
   for (const label of pulseLabels) {
     emotionCounts.set(label.emotion, (emotionCounts.get(label.emotion) ?? 0) + 1)
   }
-  const dominant = [...emotionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "neutral"
+  const sorted = [...emotionCounts.entries()].sort((a, b) => b[1] - a[1])
+  const total = pulseLabels.length
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card p-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Audience Emotional Journey
-        </h2>
-        <span
-          className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white"
-          style={{ backgroundColor: EMOTION_COLORS[dominant] ?? EMOTION_COLORS.neutral }}
-        >
-          {dominant}
-        </span>
+    <div className="space-y-4">
+      {/* Emotion distribution bars */}
+      <div className="space-y-2.5">
+        {sorted.map(([emotion, count]) => {
+          const pct = Math.round((count / total) * 100)
+          return (
+            <div key={emotion} className="flex items-center gap-3">
+              <span className="w-20 text-right text-xs font-medium text-muted-foreground">
+                {EMOTION_LABELS[emotion] ?? emotion}
+              </span>
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ backgroundColor: EMOTION_COLORS[emotion] ?? EMOTION_COLORS.neutral }}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                />
+              </div>
+              <span className="w-8 text-xs tabular-nums text-muted-foreground/60">{pct}%</span>
+            </div>
+          )
+        })}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      {/* Timeline of thoughts */}
+      <div className="flex flex-wrap gap-1.5 pt-1">
         {pulseLabels.map((label, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <div
-              className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+          <span
+            key={i}
+            className="inline-flex items-center gap-1 rounded-full border border-border/40 bg-card px-2.5 py-1 text-[11px] text-foreground/60"
+          >
+            <span
+              className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
               style={{ backgroundColor: EMOTION_COLORS[label.emotion] ?? EMOTION_COLORS.neutral }}
             />
-            <span className="text-xs text-foreground/70">{label.text}</span>
-          </div>
+            {label.text}
+          </span>
         ))}
       </div>
     </div>

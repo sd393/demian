@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef, use } from "react"
 import { useRouter } from "next/navigation"
-import ReactMarkdown from "react-markdown"
-import { ChevronDown, Loader2 } from "lucide-react"
+import { Loader2, ChevronDown, FileText } from "lucide-react"
+import { motion } from "framer-motion"
 import { useAuth } from "@/contexts/auth-context"
 import { getSession, type SessionDocument, type SessionScores } from "@/lib/sessions"
 import { FeedbackHeader } from "@/components/feedback/feedback-header"
@@ -33,7 +33,7 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
     }
   }, [authLoading, user, router])
 
-  // Load session data
+  // Load session data from Firestore
   useEffect(() => {
     if (!user) return
 
@@ -45,8 +45,9 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
           return
         }
         setSession(data)
-      } catch {
-        setLoadError("Failed to load session")
+      } catch (err) {
+        console.error("[feedback] Failed to load session:", err)
+        setLoadError("Failed to load session. Check that Firestore is enabled.")
       } finally {
         setIsLoading(false)
       }
@@ -83,15 +84,18 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
 
   if (authLoading || isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
+          <p className="text-sm text-muted-foreground">Loading your report...</p>
+        </div>
       </div>
     )
   }
 
   if (loadError || !session) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
         <p className="text-foreground">{loadError ?? "Session not found"}</p>
         <a href="/chat" className="text-sm text-primary hover:underline">
           Back to chat
@@ -101,26 +105,23 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
   }
 
   const scores: SessionScores | null = session.scores
-  const feedbackMessage = session.messages
-    .filter((m) => m.role === "assistant" && m.content.length > 100)
-    .pop()
 
   return (
-    <div className="relative min-h-screen px-4 py-12 sm:px-6">
+    <div className="relative min-h-screen bg-background">
       {/* Ambient glow */}
-      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
         <div
-          className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full opacity-[0.08] blur-3xl"
+          className="absolute -left-60 -top-60 h-[600px] w-[600px] rounded-full opacity-[0.07] blur-[100px]"
           style={{ background: "radial-gradient(circle, hsl(36 72% 50%), transparent 70%)" }}
         />
         <div
-          className="absolute -right-32 top-1/3 h-[400px] w-[400px] rounded-full opacity-[0.05] blur-3xl"
-          style={{ background: "radial-gradient(circle, hsl(34 50% 68%), transparent 70%)" }}
+          className="absolute -right-40 top-[40%] h-[500px] w-[500px] rounded-full opacity-[0.04] blur-[100px]"
+          style={{ background: "radial-gradient(circle, hsl(142 71% 45%), transparent 70%)" }}
         />
       </div>
 
-      <div className="mx-auto max-w-3xl space-y-8">
-        {/* Header */}
+      <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+        {/* ── Header with score ring ── */}
         <FeedbackHeader
           topic={session.setup.topic}
           audience={session.setup.audience}
@@ -129,84 +130,141 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
           overallScore={scores?.overall ?? null}
         />
 
-        {/* Score sections — show loading skeleton while scores are pending */}
+        {/* ── Score content ── */}
         {scores ? (
-          <>
-            {/* Radar + Grid */}
-            <ScoreRadar categories={scores.categories} />
-            <CategoryGrid categories={scores.categories} />
+          <div className="mt-12 space-y-12">
 
-            {/* Audience Journey */}
+            {/* Section: Performance Breakdown */}
+            <Section title="Performance Breakdown" delay={0}>
+              <div className="rounded-xl border border-border/60 bg-card p-5">
+                <ScoreRadar categories={scores.categories} />
+              </div>
+              <div className="mt-4">
+                <CategoryGrid categories={scores.categories} />
+              </div>
+            </Section>
+
+            {/* Section: Key Moments */}
+            <Section title="Key Moments" delay={0.05}>
+              <KeyMoments keyMoments={scores.keyMoments} />
+            </Section>
+
+            {/* Section: Audience Reaction (conditional) */}
             {session.audiencePulse.length > 0 && (
-              <AudienceJourney pulseLabels={session.audiencePulse} />
+              <Section title="Audience Reaction" delay={0.1}>
+                <div className="rounded-xl border border-border/60 bg-card p-5">
+                  <AudienceJourney pulseLabels={session.audiencePulse} />
+                </div>
+              </Section>
             )}
 
-            {/* Deep Dives */}
-            <CategoryDetail categories={scores.categories} />
+            {/* Section: Detailed Analysis */}
+            <Section title="Detailed Analysis" delay={0.15}>
+              <CategoryDetail categories={scores.categories} />
+            </Section>
 
-            {/* Key Moments */}
-            <KeyMoments keyMoments={scores.keyMoments} />
+            {/* Section: Next Steps */}
+            <Section title="Next Steps" delay={0.2}>
+              <ActionItems actionItems={scores.actionItems} />
+            </Section>
 
-            {/* Action Items */}
-            <ActionItems actionItems={scores.actionItems} />
-          </>
+            {/* Transcript (collapsible) */}
+            {session.transcript && (
+              <TranscriptSection transcript={session.transcript} />
+            )}
+          </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-border/60 bg-card py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-primary/60" />
-            <p className="text-sm text-muted-foreground">Generating detailed scores...</p>
+          /* Loading state while scores generate */
+          <div className="mt-16">
+            <div className="flex flex-col items-center gap-4 py-16">
+              <div className="relative">
+                <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-muted border-t-primary" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground/80">Analyzing your presentation</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Vera is scoring your performance across 6 dimensions...
+                </p>
+              </div>
+            </div>
+
+            {/* Skeleton placeholders */}
+            <div className="mt-8 space-y-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-20 animate-pulse rounded-xl bg-muted/40" />
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Qualitative Feedback */}
-        {feedbackMessage && (
-          <CollapsibleSection title="Qualitative Feedback" defaultOpen>
-            <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
-              <ReactMarkdown>{feedbackMessage.content}</ReactMarkdown>
-            </div>
-          </CollapsibleSection>
-        )}
-
-        {/* Transcript */}
-        {session.transcript && (
-          <CollapsibleSection title="Transcript" defaultOpen={false}>
-            <div className="max-h-96 overflow-y-auto rounded-lg bg-muted/50 p-4">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/70">
-                {session.transcript}
-              </p>
-            </div>
-          </CollapsibleSection>
-        )}
+        {/* Footer */}
+        <div className="mt-16 border-t border-border/40 pt-8 text-center">
+          <a
+            href="/chat"
+            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Start a new session
+          </a>
+        </div>
       </div>
     </div>
   )
 }
 
-function CollapsibleSection({
+/* ── Section wrapper with label + stagger ── */
+function Section({
   title,
-  defaultOpen,
+  delay = 0,
   children,
 }: {
   title: string
-  defaultOpen: boolean
+  delay?: number
   children: React.ReactNode
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <h2 className="mb-5 font-display text-xs font-semibold uppercase tracking-[0.15em] text-primary/70">
+        {title}
+      </h2>
+      {children}
+    </motion.section>
+  )
+}
+
+/* ── Collapsible transcript ── */
+function TranscriptSection({ transcript }: { transcript: string }) {
+  const [open, setOpen] = useState(false)
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card">
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
+    >
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-5 py-4 text-left"
+        className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-card px-5 py-4 text-left transition-colors hover:bg-muted/30"
       >
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
-        </h2>
+        <FileText className="h-4 w-4 text-muted-foreground/50" />
+        <span className="flex-1 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+          Transcript
+        </span>
         <ChevronDown
-          className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`}
         />
       </button>
-      {open && <div className="border-t border-border/60 px-5 pb-5 pt-4">{children}</div>}
-    </div>
+      {open && (
+        <div className="mt-2 max-h-96 overflow-y-auto rounded-xl border border-border/60 bg-card px-5 py-4">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/60">
+            {transcript}
+          </p>
+        </div>
+      )}
+    </motion.section>
   )
 }

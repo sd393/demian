@@ -51,7 +51,7 @@ describe('buildSystemPrompt', () => {
         transcript: 'My pitch transcript',
       })
       expect(prompt).toContain('CURRENT STAGE: Q&A')
-      expect(prompt).toContain('probing')
+      expect(prompt).toContain('question')
     })
 
     it('varies guidance based on qaQuestionsAsked = 0', () => {
@@ -96,7 +96,7 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('Overall Impression')
       expect(prompt).toContain('What Landed')
       expect(prompt).toContain('Where You Lost Me')
-      expect(prompt).toContain('If I Were in the Room')
+      expect(prompt).toContain('What This Audience Actually Cares About')
       expect(prompt).toContain('The One Thing')
     })
 
