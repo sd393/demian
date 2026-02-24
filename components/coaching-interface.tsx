@@ -20,6 +20,8 @@ import {
 import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "sonner"
 
+import { useAuth } from "@/contexts/auth-context"
+import { saveSession, updateSessionScores, type SessionScores } from "@/lib/sessions"
 import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
@@ -101,13 +103,15 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const router = useRouter()
 
   const {
-    messages, researchMeta, researchSearchTerms, isCompressing, isTranscribing, isResearching, isStreaming,
+    messages, researchMeta, researchSearchTerms, researchContext, isCompressing, isTranscribing, isResearching, isStreaming,
     error, trialMessagesRemaining, trialLimitReached, freeLimitReached,
-    stage, transcript,
+    stage, transcript, setupContext: chatSetupContext, slideContext,
+    audiencePulseHistory, appendPulseLabels,
     sendMessage, uploadFile, addMessage, setSlideContext, clearError,
     startPresentation, finishPresentation, skipToFeedback, startResearchEarly,
   } = useChat(authToken)
 
+  const { user } = useAuth()
   const recorder = useRecorder()
   const slideReview = useSlideReview(authToken)
   const hasSlidePanel = slideReview.panelOpen
@@ -122,6 +126,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const [setupPhase, setSetupPhase] = useState<"fields" | "researching" | "review" | "mode-select" | "uploading">("fields")
   const [showTrialDialog, setShowTrialDialog] = useState(false)
   const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
+  const sessionSaveTriggered = useRef(false)
   const [presentationMode, setPresentationMode] = useState(false)
   const presentationCommittedRef = useRef(false)
   const pendingUploadRef = useRef(false)
@@ -238,6 +243,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
         if (validLabels.length > 0) {
           setPulseLabels(validLabels)
           setPulseIndex(0)
+          appendPulseLabels(validLabels)
         }
       })
       .catch((err) => { console.warn("[audience-pulse] failed:", err) })
@@ -350,6 +356,70 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     }
     prevStageRef.current = stage
   }, [stage, messages, feedbackMessageId])
+
+  // Save session to Firestore when feedback completes (stage → followup)
+  useEffect(() => {
+    if (stage !== "followup") return
+    if (sessionSaveTriggered.current) return
+    if (!user) return
+    if (!chatSetupContext?.topic || !chatSetupContext?.audience || !chatSetupContext?.goal) return
+
+    sessionSaveTriggered.current = true
+
+    const strippedMessages = messages
+      .filter((m) => m.content.trim())
+      .map((m) => ({ role: m.role, content: m.content }))
+
+    const sessionData = {
+      userId: user.uid,
+      setup: {
+        topic: chatSetupContext.topic,
+        audience: chatSetupContext.audience,
+        goal: chatSetupContext.goal,
+        ...(chatSetupContext.additionalContext ? { additionalContext: chatSetupContext.additionalContext } : {}),
+      },
+      transcript: transcript ?? null,
+      messages: strippedMessages,
+      audiencePulse: audiencePulseHistory,
+      slideReview: slideContext ? { raw: slideContext } : null,
+      researchContext: researchContext ?? null,
+      scores: null,
+    }
+
+    saveSession(sessionData).then(async (sessionId) => {
+      // Navigate to feedback page immediately — scores will load asynchronously
+      router.push(`/feedback/${sessionId}`)
+
+      // Fire off scoring API call in the background
+      try {
+        const token = await user.getIdToken()
+        const res = await fetch("/api/feedback-score", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            sessionId,
+            transcript: transcript ?? undefined,
+            setup: sessionData.setup,
+            messages: strippedMessages,
+            researchContext: researchContext ?? undefined,
+            slideContext: slideContext ?? undefined,
+          }),
+        })
+
+        if (res.ok) {
+          const { scores } = await res.json()
+          await updateSessionScores(sessionId, scores as SessionScores)
+        }
+      } catch (err) {
+        console.warn("[feedback-score] Scoring failed:", err)
+      }
+    }).catch((err) => {
+      console.warn("[session-save] Failed to save session:", err)
+    })
+  }, [stage, user, chatSetupContext, messages, transcript, audiencePulseHistory, slideContext, researchContext])
 
   /* ── Effects ── */
   useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])

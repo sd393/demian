@@ -14,7 +14,8 @@
       "Bash(node:*)",
       "Bash(python3:*)",
       "Bash(git log:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(pnpm test:run:*)"
     ]
   }
 }

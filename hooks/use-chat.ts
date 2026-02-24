@@ -59,6 +59,11 @@ export function useChat(authToken?: string | null) {
   const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
   const [qaQuestionsAsked, setQaQuestionsAsked] = useState(0)
 
+  // Audience pulse history — accumulates all pulse labels during the session
+  const [audiencePulseHistory, setAudiencePulseHistory] = useState<{ text: string; emotion: string }[]>([])
+  const audiencePulseHistoryRef = useRef<{ text: string; emotion: string }[]>([])
+  audiencePulseHistoryRef.current = audiencePulseHistory
+
   const abortControllerRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<Message[]>([INITIAL_MESSAGE])
   const transcriptRef = useRef<string | null>(null)
@@ -639,6 +644,13 @@ export function useChat(authToken?: string | null) {
     []
   )
 
+  const appendPulseLabels = useCallback(
+    (labels: { text: string; emotion: string }[]) => {
+      setAudiencePulseHistory((prev) => [...prev, ...labels])
+    },
+    []
+  )
+
   const clearError = useCallback(() => {
     setError(null)
   }, [])
@@ -659,6 +671,8 @@ export function useChat(authToken?: string | null) {
     setupContextRef.current = null
     setQaQuestionsAsked(0)
     qaQuestionsAskedRef.current = 0
+    setAudiencePulseHistory([])
+    audiencePulseHistoryRef.current = []
     setIsCompressing(false)
     setIsTranscribing(false)
     setIsResearching(false)
@@ -684,6 +698,8 @@ export function useChat(authToken?: string | null) {
     stage,
     setupContext,
     qaQuestionsAsked,
+    audiencePulseHistory,
+    appendPulseLabels,
     sendMessage,
     uploadFile,
     addMessage,
