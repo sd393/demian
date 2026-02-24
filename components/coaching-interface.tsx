@@ -88,6 +88,7 @@ const LABELS_DEFAULT = [
   "Thinking about that...",
 ]
 
+
 /* ── Props ── */
 
 interface CoachingInterfaceProps {
@@ -671,7 +672,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
       // Defer startPresentation/addMessage until the user actually records
       presentationCommittedRef.current = false
       setPresentationMode(true)
-      // Seed initial audience thoughts based on setup context
+      // Fetch first-person audience thoughts based on setup context
       const ctx = buildContextMessage()
       if (ctx) fetchPulseLabels([{ role: "user", content: `I'm about to present to you. ${ctx}` }])
       return
@@ -777,10 +778,13 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   /* ── Audience pulse label + emotion (used in presentation overlay) ── */
   const currentPulse = pulseLabels[pulseIndex] ?? null
   const currentEmotion: FaceEmotion = currentPulse?.emotion ?? "neutral"
-  const audienceLabel = currentPulse?.text
-    ?? researchMeta?.audienceSummary
-    ?? (slideReview.deckSummary?.audienceAssumed ? `Presenting to ${slideReview.deckSummary.audienceAssumed}` : null)
-    ?? "In the room with you"
+  // In presentation mode, only show pulse labels (first-person thoughts) — never the research summary
+  const audienceLabel = presentationMode
+    ? (currentPulse?.text ?? null)
+    : (currentPulse?.text
+      ?? researchMeta?.audienceSummary
+      ?? (slideReview.deckSummary?.audienceAssumed ? `Presenting to ${slideReview.deckSummary.audienceAssumed}` : null)
+      ?? "In the room with you")
 
   /* ── Render ── */
   return (
@@ -1293,7 +1297,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                   >
                     {ttsCaption}
                   </motion.p>
-                ) : faceState === "thinking" && pulseLabels.length === 0 ? (
+                ) : faceState === "thinking" ? (
                   <motion.span
                     key="thinking-label"
                     initial={{ opacity: 0 }}
@@ -1303,9 +1307,9 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                   >
                     {thinkingLabel}
                   </motion.span>
-                ) : (
+                ) : audienceLabel ? (
                   <motion.span
-                    key={audienceLabel}
+                    key={pulseLabels.length > 0 ? pulseIndex : audienceLabel}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -1314,7 +1318,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
                   >
                     {audienceLabel}
                   </motion.span>
-                )}
+                ) : null}
               </AnimatePresence>
             </div>
 

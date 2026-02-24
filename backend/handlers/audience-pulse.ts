@@ -1,6 +1,14 @@
 import { NextRequest } from 'next/server'
 import { openai } from '@/backend/openai'
-import { isValidFaceEmotion } from '@/components/audience-face'
+
+const VALID_EMOTIONS = new Set([
+  'neutral', 'interested', 'skeptical', 'confused',
+  'amused', 'impressed', 'concerned', 'bored',
+])
+
+function isValidEmotion(v: unknown): v is string {
+  return typeof v === 'string' && VALID_EMOTIONS.has(v)
+}
 
 const SYSTEM_PROMPT = `You are the audience — the specific person being presented to. The conversation tells you who you are (investor, executive, board member, etc.). You ARE that person. Write exactly 3 short inner thoughts.
 
@@ -60,7 +68,7 @@ export async function handleAudiencePulse(request: NextRequest) {
         if (item && typeof item === 'object' && 'text' in item) {
           const obj = item as { text: unknown; emotion?: unknown }
           const text = typeof obj.text === 'string' ? obj.text : ''
-          const emotion = isValidFaceEmotion(obj.emotion)
+          const emotion = isValidEmotion(obj.emotion)
             ? obj.emotion
             : 'neutral'
           return { text, emotion }
