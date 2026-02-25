@@ -1366,17 +1366,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                       </div>
                     </div>
                   )}
-                  {stage === 'qa' && (
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={() => saveAndNavigateToFeedback()}
-                        className="rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground active:scale-[0.98]"
-                      >
-                        Skip to feedback
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -1515,12 +1504,11 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                           <span className="h-2 w-2 rounded-full bg-red-500" />
                           Continue
                         </button>
-                        {transcript && (
+                        {transcript && stage === 'present' && (
                           <button
                             type="button"
                             onClick={() => {
                               stopSpeaking()
-                              setPresentationMode(false)
                               finishPresentation()
                             }}
                             className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-2.5 text-sm text-primary/80 hover:bg-primary/10 hover:text-primary transition-colors"
@@ -1529,6 +1517,20 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                           </button>
                         )}
                       </>
+                    )}
+
+                    {stage === 'qa' && !recorder.isRecording && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopSpeaking()
+                          setPresentationMode(false)
+                          saveAndNavigateToFeedback()
+                        }}
+                        className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
+                      >
+                        Skip to feedback
+                      </button>
                     )}
 
                     {recorder.isRecording && (
