@@ -107,7 +107,11 @@ export async function handleSlidesAnalyze(request: NextRequest) {
           ? result.slides
           : []
         for (const slide of slides) {
-          enqueue(sseEvent('slide_feedback', slide))
+          enqueue(sseEvent('slide_feedback', {
+            ...slide,
+            strengths: Array.isArray(slide.strengths) ? slide.strengths : [],
+            improvements: Array.isArray(slide.improvements) ? slide.improvements : [],
+          }))
         }
 
         // 5. Emit deck summary

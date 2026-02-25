@@ -71,13 +71,13 @@ export function DeckSummaryCard({ summary }: DeckSummaryCardProps) {
       </p>
 
       {/* Top priorities */}
-      {summary.topPriorities.length > 0 && (
+      {(summary.topPriorities?.length ?? 0) > 0 && (
         <div className="border-t border-border/60 px-5 py-4">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Top priorities
           </p>
           <ol className="space-y-2">
-            {summary.topPriorities.map((priority, i) => (
+            {summary.topPriorities?.map((priority, i) => (
               <li key={i} className="flex items-start gap-3 text-sm text-foreground/80">
                 <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
                   {i + 1}

@@ -22,7 +22,7 @@ export function formatSlideContextForChat(deck: DeckFeedback, feedbacks: SlideFe
     deck.executiveSummary,
     ``,
     `Top Priorities:`,
-    ...deck.topPriorities.map((p, i) => `${i + 1}. ${p}`),
+    ...(deck.topPriorities ?? []).map((p, i) => `${i + 1}. ${p}`),
     ``,
     `Slide-by-Slide Feedback:`,
   ]
@@ -33,11 +33,11 @@ export function formatSlideContextForChat(deck: DeckFeedback, feedbacks: SlideFe
     lines.push(`Slide ${f.slideNumber}: "${f.title}" — ${ratingLabel}`)
     lines.push(`  ${f.headline}`)
     if (f.quote) lines.push(`  (Quote from slide: "${f.quote}")`)
-    if (f.strengths.length > 0) {
+    if ((f.strengths?.length ?? 0) > 0) {
       lines.push(`  Strengths:`)
       f.strengths.forEach((s) => lines.push(`    - ${s}`))
     }
-    if (f.improvements.length > 0) {
+    if ((f.improvements?.length ?? 0) > 0) {
       lines.push(`  Improvements:`)
       f.improvements.forEach((s) => lines.push(`    - ${s}`))
     }
