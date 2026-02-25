@@ -56,6 +56,7 @@ export default function Page() {
             isTranscribing={false}
             onResearchStart={() => router.push("/login")}
             onModeSelect={() => router.push("/login")}
+            onReady={() => router.push("/login")}
           />
         </div>
       </div>

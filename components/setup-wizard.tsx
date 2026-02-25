@@ -27,6 +27,8 @@ interface SetupWizardProps {
   isTranscribing: boolean
   onResearchStart: (audience: string, opts?: { topic?: string; goal?: string; additionalContext?: string }) => void
   onModeSelect: (mode: "present" | "upload-recording" | "just-chat", setupContext: SetupContext | null, contextMessage: string | null) => void
+  /** If provided, called instead of the normal submit flow (e.g. to redirect unauthenticated users). */
+  onReady?: () => void
 }
 
 export const SetupWizard = React.memo(function SetupWizard({
@@ -37,6 +39,7 @@ export const SetupWizard = React.memo(function SetupWizard({
   isTranscribing,
   onResearchStart,
   onModeSelect,
+  onReady,
 }: SetupWizardProps) {
   const [setupTopic, setSetupTopic] = useState("")
   const [setupAudience, setSetupAudience] = useState("")
@@ -173,6 +176,7 @@ export const SetupWizard = React.memo(function SetupWizard({
 
   function handleSetupSubmit() {
     if (!hasSetupContent) return
+    if (onReady) { onReady(); return }
     const audience = setupAudience.trim()
     if (audience) {
       setSetupPhase("researching")

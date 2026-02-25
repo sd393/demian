@@ -114,7 +114,12 @@ export function useTranscription(deps: UseTranscriptionDeps) {
         const data = await response.json()
         const newTranscript = data.transcript as string
 
-        setTranscript(newTranscript)
+        // Append to existing transcript (multiple recordings in presentation mode)
+        const combined = transcriptRef.current
+          ? `${transcriptRef.current}\n\n${newTranscript}`
+          : newTranscript
+        transcriptRef.current = combined
+        setTranscript(combined)
         setIsTranscribing(false)
 
         const updatedWithTranscript = updatedMessages.map(m =>
@@ -125,7 +130,7 @@ export function useTranscription(deps: UseTranscriptionDeps) {
         messagesRef.current = updatedWithTranscript
         setMessages(updatedWithTranscript)
 
-        await callbacks.onTranscriptReady(updatedWithTranscript, newTranscript)
+        await callbacks.onTranscriptReady(updatedWithTranscript, combined)
       } catch (err: unknown) {
         setIsCompressing(false)
         if (
