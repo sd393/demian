@@ -17,7 +17,8 @@
       "Bash(pnpm build:*)",
       "Bash(pnpm test:run:*)",
       "Bash(pnpm dev:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(pnpm lint:*)"
     ]
   }
 }

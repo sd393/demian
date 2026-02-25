@@ -1,12 +1,10 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { User, Mail, CreditCard, LogOut, Lock, History } from "lucide-react"
+import { User, Mail, CreditCard, LogOut, Lock } from "lucide-react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
-import { listSessions, type SessionSummary } from "@/lib/sessions"
 
 export default function AccountPage() {
   const router = useRouter()
@@ -20,24 +18,12 @@ export default function AccountPage() {
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [sessionsLoading, setSessionsLoading] = useState(false)
 
   useEffect(() => {
     if (!loading && !user && !isSigningOut.current) {
       router.replace("/login")
     }
   }, [loading, user, router])
-
-  // Load past sessions
-  useEffect(() => {
-    if (!user) return
-    setSessionsLoading(true)
-    listSessions(user.uid)
-      .then(setSessions)
-      .catch(() => {})
-      .finally(() => setSessionsLoading(false))
-  }, [user])
 
   if (loading) {
     return (
@@ -374,62 +360,6 @@ export default function AccountPage() {
                 </button>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Past Sessions */}
-        <div className="mt-8 rounded-2xl border border-border/60 bg-card/80 p-8 shadow-lg backdrop-blur-sm">
-          <div className="flex items-center gap-3 border-b border-border/60 pb-6">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <History className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Past Sessions</h2>
-              <p className="text-sm text-muted-foreground">
-                Review your previous coaching sessions
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            {sessionsLoading ? (
-              <p className="text-sm text-muted-foreground">Loading...</p>
-            ) : sessions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No sessions yet. Complete a coaching session to see your feedback here.</p>
-            ) : (
-              <div className="space-y-2">
-                {sessions.map((s) => (
-                  <Link
-                    key={s.id}
-                    href={`/feedback/${s.id}`}
-                    className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3 transition-colors hover:bg-accent"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{s.topic}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {s.audience} &middot;{" "}
-                        {s.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </p>
-                    </div>
-                    {s.overallScore !== null && (
-                      <span
-                        className="ml-3 text-lg font-bold tabular-nums"
-                        style={{
-                          color:
-                            s.overallScore >= 75
-                              ? "hsl(142 71% 45%)"
-                              : s.overallScore >= 50
-                                ? "hsl(36 56% 48%)"
-                                : "hsl(0 84% 60%)",
-                        }}
-                      >
-                        {s.overallScore}
-                      </span>
-                    )}
-                  </Link>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 

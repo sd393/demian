@@ -13,6 +13,24 @@ import {
   type Timestamp,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import type { SlideFeedback, DeckFeedback } from "@/backend/slides"
+
+/* ── Slide review data (structured) ── */
+
+export interface SlideReviewData {
+  raw: string                       // formatted text for scoring API (backward compat)
+  deckSummary: DeckFeedback | null
+  slideFeedbacks: SlideFeedback[]
+  blobUrl?: string                  // Vercel Blob URL of PDF (for re-rendering thumbnails)
+  fileName?: string
+}
+
+/** Type guard: structured slide review has a `slideFeedbacks` array. */
+export function isStructuredSlideReview(
+  review: SlideReviewData | { raw: string } | null | undefined
+): review is SlideReviewData {
+  return !!review && "slideFeedbacks" in review && Array.isArray((review as SlideReviewData).slideFeedbacks)
+}
 
 /* ── Score types (V1 — legacy, kept for backward compat) ── */
 
@@ -89,7 +107,7 @@ export interface SessionDocument {
   transcript: string | null
   messages: { role: string; content: string }[]
   audiencePulse: { text: string; emotion: string }[]
-  slideReview: object | null
+  slideReview: SlideReviewData | { raw: string } | null
   researchContext: string | null
   scores: SessionScores | SessionScoresV2 | null
 }
@@ -98,6 +116,7 @@ export interface SessionSummary {
   id: string
   topic: string
   audience: string
+  goal: string
   date: Date
   overallScore: number | null
 }
@@ -150,12 +169,30 @@ export async function listSessions(
   const snap = await getDocs(q)
   return snap.docs.map((d) => {
     const data = d.data() as SessionDocument
+
+    let overallScore: number | null = null
+    if (data.scores) {
+      if ("overall" in data.scores) {
+        overallScore = data.scores.overall
+      } else if (
+        "rubric" in data.scores &&
+        Array.isArray(data.scores.rubric) &&
+        data.scores.rubric.length > 0
+      ) {
+        const sum = data.scores.rubric.reduce((acc, c) => acc + c.score, 0)
+        overallScore = Math.round(sum / data.scores.rubric.length)
+      }
+    }
+
+    const v2 = data.scores && isV2Scores(data.scores) ? data.scores : null
+
     return {
       id: d.id,
-      topic: data.setup.topic,
-      audience: data.setup.audience,
+      topic: v2?.refinedTitle ?? data.setup?.topic ?? "",
+      audience: v2?.refinedAudience ?? data.setup?.audience ?? "",
+      goal: v2?.refinedGoal ?? data.setup?.goal ?? "",
       date: data.createdAt?.toDate() ?? new Date(),
-      overallScore: data.scores && "overall" in data.scores ? data.scores.overall : null,
+      overallScore,
     }
   })
 }

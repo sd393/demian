@@ -41,11 +41,14 @@ export interface UseSlideReviewReturn {
   activeReviewKey: string | null
   displayedKey: string | null
   isAnalyzing: boolean
+  blobUrl: string | null
+  fileName: string | null
   uploadAndAnalyze: (file: File, audienceContext?: string, reviewKey?: string) => Promise<void>
   reanalyze: (audienceContext: string) => Promise<void>
   openPanel: () => void
   closePanel: () => void
   openReview: (key: string) => void
+  markBlobPersisted: (url: string) => void
   reset: () => void
 }
 
@@ -66,6 +69,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
   const [activeReviewKey, setActiveReviewKey] = useState<string | null>(null)
   const [displayedKey, setDisplayedKey] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
 
   const storedBlobUrlRef = useRef<string | null>(null)
   const storedFileNameRef = useRef<string | null>(null)
@@ -115,6 +120,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
       storedBlobUrlRef.current = snapshot.blobUrl
       storedFileNameRef.current = snapshot.fileName
+      setBlobUrl(snapshot.blobUrl)
+      setFileName(snapshot.fileName)
       setError(null)
       setPanelOpen(true)
       return prev
@@ -130,6 +137,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     setReviews({})
     storedBlobUrlRef.current = null
     storedFileNameRef.current = null
+    setBlobUrl(null)
+    setFileName(null)
     activeReviewKeyRef.current = null
     displayedKeyRef.current = null
     runningProgressRef.current = INITIAL_PROGRESS
@@ -303,6 +312,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
       setError(null)
       storedBlobUrlRef.current = null
       storedFileNameRef.current = null
+      setBlobUrl(null)
+      setFileName(null)
       runningThumbnailsRef.current = {}
       if (reviewKey) {
         activeReviewKeyRef.current = reviewKey
@@ -322,6 +333,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
         storedBlobUrlRef.current = blob.url
         storedFileNameRef.current = file.name
+        setBlobUrl(blob.url)
+        setFileName(file.name)
         sessionBlobUrlsRef.current.add(blob.url)
 
         const thumbnailPromise = import('@/lib/pdf-thumbnails')
@@ -391,6 +404,10 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     [runAnalysis]
   )
 
+  const markBlobPersisted = useCallback((url: string) => {
+    sessionBlobUrlsRef.current.delete(url)
+  }, [])
+
   const deleteBlobUrls = useCallback((urls: string[]) => {
     if (urls.length === 0) return
     const payload = JSON.stringify({ urls })
@@ -431,11 +448,14 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     activeReviewKey,
     displayedKey,
     isAnalyzing,
+    blobUrl,
+    fileName,
     uploadAndAnalyze,
     reanalyze,
     openPanel,
     closePanel,
     openReview,
+    markBlobPersisted,
     reset,
   }
 }

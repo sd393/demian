@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/auth-context"
 import {
   getSession,
   isV2Scores,
+  isStructuredSlideReview,
   type SessionDocument,
   type SessionScoresV2,
 } from "@/lib/sessions"
@@ -17,6 +18,7 @@ import { RubricRadar } from "@/components/feedback/rubric-radar"
 import { RubricDetail } from "@/components/feedback/rubric-detail"
 import { FollowUpChat } from "@/components/feedback/follow-up-chat"
 import { useFollowUpChat } from "@/hooks/use-follow-up-chat"
+import { SlideReviewSection } from "@/components/feedback/slide-review-section"
 
 const SCORE_POLL_INTERVAL = 3000
 const SCORE_POLL_MAX_ATTEMPTS = 20
@@ -153,17 +155,24 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
       </div>
 
       <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-        {/* ── Header ── */}
-        <header>
-          <button
-            type="button"
-            onClick={() => router.push("/chat")}
-            className="mb-6 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        {/* ── Back button ── */}
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          className="mb-8"
+        >
+          <a
+            href="/chat"
+            className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Back to chat"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to chat
-          </button>
+          </a>
+        </motion.div>
 
+        {/* ── Header ── */}
+        <header>
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -231,6 +240,11 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
             <ScoresLoadingState />
           )}
 
+          {/* Slide deck review (collapsible) */}
+          {isStructuredSlideReview(session.slideReview) && (
+            <SlideReviewSection slideReview={session.slideReview} />
+          )}
+
           {/* Transcript (collapsible) */}
           {session.transcript && (
             <TranscriptSection transcript={session.transcript} />
@@ -253,12 +267,13 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
         </div>
 
         {/* Footer */}
-        <div className="mt-16 border-t border-border/40 pt-8 text-center">
+        <div className="mt-16 text-center">
           <a
             href="/chat"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-2 rounded-full border border-border/60 px-5 py-2 text-sm text-muted-foreground transition-colors hover:border-border hover:text-foreground"
           >
             Start a new session
+            <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
           </a>
         </div>
       </div>
