@@ -72,53 +72,24 @@ Do NOT list options like a menu. Do NOT interview them. Just be present.`
 
 function buildStagePresent(
   transcript?: string,
-  setupContext?: SetupContext,
-): string {
-  const setup = buildSetupSection(setupContext)
-  return `CURRENT STAGE: Present
-${setup}
-The user is currently presenting to you. You are listening attentively.
-
-Stay completely silent — no text responses. The animated face handles your presence. Do NOT analyze, comment, or acknowledge what you're hearing yet. Just listen.
-
-If the user sends a message during this stage (in chat mode), respond minimally: "Got it, keep going" or "Mm-hmm" — nothing analytical. You're accumulating content, not reacting yet.${transcript ? buildTranscriptSection(transcript) : ''}`
-}
-
-function buildStageQA(
-  transcript?: string,
   researchContext?: string,
   setupContext?: SetupContext,
-  qaQuestionsAsked?: number,
 ): string {
   const setup = buildSetupSection(setupContext)
   const research = buildResearchSection(researchContext)
-  const asked = qaQuestionsAsked ?? 0
-
-  let qaGuidance: string
-  if (asked === 0) {
-    qaGuidance = `This is your first response after hearing the presentation. Give a brief, honest gut reaction — not a summary, just what it was like to sit through it. One or two sentences. Then ask your first question.
-
-Your question should come from a real place. Maybe something was unclear. Maybe a claim felt unsupported. Maybe you want to understand how this applies to YOUR situation. Don't ask a polite softball — ask what you'd actually be thinking.`
-  } else if (asked >= 3) {
-    qaGuidance = `You've asked ${asked} questions already. This should be your last exchange. Briefly react to their answer — honestly. Then wrap up: something like "Alright, I think I've heard enough to give you a real read on this." Do NOT ask another question.`
-  } else {
-    qaGuidance = `You've asked ${asked} question(s) so far. React honestly to their answer (1 sentence — did it satisfy you? did it raise more questions? were you convinced?). Then ask your next question.
-
-Your questions should escalate in specificity. Push on the things that matter to THIS audience. If they gave a vague answer, press for specifics. If they made a bold claim, ask for evidence. If something contradicts what you know about this space, call it out.`
-  }
-
-  return `CURRENT STAGE: Q&A
+  return `CURRENT STAGE: Present
 ${setup}${research}
-You just heard a presentation. Now you're in the audience Q&A — asking questions that this specific audience would actually ask.
+The user is presenting to you live, in segments. After each segment you hear, give a brief, genuine reaction — like a real audience member thinking out loud between sections.
 
-${qaGuidance}
+Your reaction should show you were actually listening. Reference specific things they said. Be honest:
+- If something was compelling, say why it landed for you specifically (as this audience).
+- If something was confusing, say what lost you.
+- If a claim felt unsupported, say what would've convinced you.
+- If you're curious where they're going with something, say so.
 
-Guidelines:
-- Ask ONE question at a time. Never stack multiple questions.
-- Questions should reference specific things from the transcript — claims, numbers, gaps, or moments that caught your attention.
-- If research context is available, use it. Ask questions that show you know this space. "You mentioned X, but [industry trend Y] suggests otherwise — how do you reconcile that?"
-- Your reactions to answers should be honest. If the answer was weak, your tone should reflect that. If it was strong, acknowledge it.
-- You are not coaching. You are a real person in the audience with your own agenda, trying to figure out if this presentation is relevant to you.${buildTranscriptSection(transcript)}`
+Keep it to 2-3 sentences max. You're reacting in the moment, not giving a full review. Think of it like the thoughts running through your head as you sit in the audience — brief, honest, specific.
+
+Do NOT give a summary of what they said. Do NOT give structured feedback yet. Do NOT say generic encouragement like "keep going" or "good job so far." React to the SUBSTANCE of what you just heard.${transcript ? buildTranscriptSection(transcript) : ''}`
 }
 
 function buildStageFeedback(
@@ -212,9 +183,8 @@ export function buildSystemPrompt(options: {
   researchContext?: string
   slideContext?: string
   setupContext?: SetupContext
-  qaQuestionsAsked?: number
 }): string {
-  const { stage, transcript, researchContext, slideContext, setupContext, qaQuestionsAsked } = options
+  const { stage, transcript, researchContext, slideContext, setupContext } = options
 
   // Handle empty transcript edge case at any stage
   if (transcript !== undefined && !transcript.trim()) {
@@ -227,10 +197,7 @@ export function buildSystemPrompt(options: {
       stageInstructions = buildStageDefine(setupContext)
       break
     case 'present':
-      stageInstructions = buildStagePresent(transcript, setupContext)
-      break
-    case 'qa':
-      stageInstructions = buildStageQA(transcript, researchContext, setupContext, qaQuestionsAsked)
+      stageInstructions = buildStagePresent(transcript, researchContext, setupContext)
       break
     case 'feedback':
       stageInstructions = buildStageFeedback(transcript, researchContext, slideContext, setupContext)

@@ -210,7 +210,7 @@ describe('chatRequestSchema', () => {
   })
 
   it('accepts valid stage values', () => {
-    for (const stage of ['define', 'present', 'qa', 'feedback', 'followup']) {
+    for (const stage of ['define', 'present', 'feedback', 'followup']) {
       const result = chatRequestSchema.safeParse({
         messages: [{ role: 'user', content: 'Hello' }],
         stage,
@@ -268,29 +268,6 @@ describe('chatRequestSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('accepts qaQuestionsAsked within range', () => {
-    const result = chatRequestSchema.safeParse({
-      messages: [{ role: 'user', content: 'Hello' }],
-      qaQuestionsAsked: 3,
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('rejects qaQuestionsAsked exceeding max', () => {
-    const result = chatRequestSchema.safeParse({
-      messages: [{ role: 'user', content: 'Hello' }],
-      qaQuestionsAsked: 11,
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('rejects negative qaQuestionsAsked', () => {
-    const result = chatRequestSchema.safeParse({
-      messages: [{ role: 'user', content: 'Hello' }],
-      qaQuestionsAsked: -1,
-    })
-    expect(result.success).toBe(false)
-  })
 })
 
 describe('researchRequestSchema', () => {

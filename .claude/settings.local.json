@@ -18,7 +18,10 @@
       "Bash(pnpm test:run:*)",
       "Bash(pnpm dev:*)",
       "Bash(head:*)",
-      "Bash(pnpm lint:*)"
+      "Bash(pnpm lint:*)",
+      "Bash(git:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)"
     ]
   }
 }

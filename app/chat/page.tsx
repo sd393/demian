@@ -16,8 +16,13 @@ function ChatContent() {
   const [idToken, setIdToken] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const searchParams = useSearchParams()
+  const getAuthToken = useCallback(async () => {
+    if (!user) throw new Error("Not authenticated")
+    return user.getIdToken()
+  }, [user])
+
   const { sessions, loading: sessionsLoading, error: sessionsError, refresh: refreshSessions, removeSession } =
-    useSessionHistory({ userId: user?.uid ?? null, authToken: idToken })
+    useSessionHistory({ userId: user?.uid ?? null, getAuthToken })
 
   const handleHistoryToggle = useCallback(() => {
     if (!historyOpen) refreshSessions()
@@ -28,7 +33,7 @@ function ChatContent() {
     try {
       await removeSession(sessionId)
     } catch {
-      toast.error("Failed to delete session")
+      toast.error("Failed to delete presentation")
     }
   }, [removeSession])
 
@@ -108,7 +113,7 @@ function ChatContent() {
       <button
         type="button"
         onClick={handleHistoryToggle}
-        className={`fixed bottom-6 left-6 z-50 flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-sm transition-all active:scale-[0.98] ${
+        className={`fixed bottom-6 left-6 z-30 flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-sm transition-all active:scale-[0.98] ${
           historyOpen
             ? "border-primary/20 bg-primary/[0.03] text-foreground"
             : "border-border/40 bg-background/90 text-muted-foreground/50 hover:border-primary/20 hover:bg-primary/[0.03] hover:text-primary/70"

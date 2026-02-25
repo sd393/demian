@@ -5,7 +5,6 @@ import type { CoachingStage } from "@/lib/coaching-stages"
 
 const STAGE_LABELS: Partial<Record<CoachingStage, string>> = {
   present: "Presenting",
-  qa: "Q&A",
   feedback: "Feedback",
 }
 

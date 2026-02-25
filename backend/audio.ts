@@ -44,15 +44,31 @@ export function extractAndCompressAudio(
 }
 
 /**
- * Get the duration of an audio file in seconds.
+ * Probe a file and return its ffprobe metadata.
  */
-function getAudioDuration(filePath: string): Promise<number> {
+function probeFile(filePath: string): Promise<ffmpeg.FfprobeData> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => {
       if (err) return reject(err)
-      resolve(metadata.format.duration ?? 0)
+      resolve(metadata)
     })
   })
+}
+
+/**
+ * Check whether a file contains at least one audio stream.
+ */
+async function hasAudioStream(filePath: string): Promise<boolean> {
+  const metadata = await probeFile(filePath)
+  return metadata.streams.some((s) => s.codec_type === 'audio')
+}
+
+/**
+ * Get the duration of an audio file in seconds.
+ */
+async function getAudioDuration(filePath: string): Promise<number> {
+  const metadata = await probeFile(filePath)
+  return metadata.format.duration ?? 0
 }
 
 /**
@@ -178,6 +194,13 @@ export async function processFileForWhisper(inputPath: string): Promise<{
   if (stat.size <= WHISPER_MAX_SIZE && WHISPER_NATIVE_FORMATS.has(ext)) {
     console.log(`[processFileForWhisper] Skipping FFmpeg — native format (${ext}, ${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
     return { chunkPaths: [inputPath], allTempPaths: [inputPath] }
+  }
+
+  // Verify the file actually contains audio before attempting extraction
+  if (!(await hasAudioStream(inputPath))) {
+    throw new Error(
+      'This file does not contain an audio track. Please upload a file with audible speech.'
+    )
   }
 
   const compressedPath = tempPath('.mp3')

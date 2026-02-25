@@ -80,8 +80,14 @@ export async function handleTranscribe(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Transcription error:', error)
 
+    // Surface user-friendly messages (e.g. "no audio track") instead of generic error
+    const message =
+      error instanceof Error && error.message.includes('does not contain an audio track')
+        ? error.message
+        : 'Failed to transcribe file. Please try again.'
+
     return NextResponse.json(
-      { error: 'Failed to transcribe file. Please try again.' },
+      { error: message },
       { status: 500 }
     )
   } finally {

@@ -5,10 +5,10 @@ import { listSessions, deleteSession, type SessionSummary } from "@/lib/sessions
 
 interface UseSessionHistoryOptions {
   userId: string | null
-  authToken: string | null
+  getAuthToken: () => Promise<string>
 }
 
-export function useSessionHistory({ userId, authToken }: UseSessionHistoryOptions) {
+export function useSessionHistory({ userId, getAuthToken }: UseSessionHistoryOptions) {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,17 +36,17 @@ export function useSessionHistory({ userId, authToken }: UseSessionHistoryOption
   }, [userId, refresh])
 
   const removeSession = useCallback(async (sessionId: string) => {
-    if (!authToken) return
     const previous = sessions
     setSessions((prev) => prev.filter((s) => s.id !== sessionId))
     try {
-      await deleteSession(sessionId, authToken)
+      const token = await getAuthToken()
+      await deleteSession(sessionId, token)
     } catch (err) {
       setSessions(previous)
       refresh()
       throw err
     }
-  }, [authToken, sessions, refresh])
+  }, [getAuthToken, sessions, refresh])
 
   return { sessions, loading, error, refresh, removeSession }
 }

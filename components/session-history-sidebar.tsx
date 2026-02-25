@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { History, Inbox, AlertCircle, X, Trash2 } from "lucide-react"
+import { Presentation, FolderOpen, AlertCircle, X, Trash2 } from "lucide-react"
+import { AnimatePresence, motion } from "framer-motion"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { SessionSummary } from "@/lib/sessions"
@@ -29,7 +30,7 @@ function SessionCard({
             onDelete(session.id)
           }}
           className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-          aria-label="Delete session"
+          aria-label="Delete presentation"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -84,12 +85,12 @@ function SessionCardSkeletons() {
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <Inbox className="h-10 w-10 text-muted-foreground/40" />
+      <FolderOpen className="h-10 w-10 text-muted-foreground/40" />
       <p className="mt-3 text-sm font-medium text-muted-foreground">
-        No sessions yet
+        No presentations yet
       </p>
       <p className="mt-1 text-xs text-muted-foreground/70">
-        Complete a coaching session to see it here.
+        Complete a presentation to see it here.
       </p>
     </div>
   )
@@ -125,42 +126,66 @@ export function SessionHistorySidebar({
   error,
   onDelete,
 }: SessionHistorySidebarProps) {
-  if (!open) return null
-
   return (
-    <aside className="absolute inset-y-0 left-0 z-40 flex w-80 flex-col border-r border-border/50 bg-background/95 shadow-xl backdrop-blur-xl">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <History className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">Past Sessions</h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-label="Close sidebar"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop — click to close */}
+          <motion.div
+            key="sidebar-backdrop"
+            className="absolute inset-0 z-40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={onClose}
+            aria-hidden
+          />
 
-      {/* Content */}
-      <ScrollArea className="flex-1 px-3 py-3">
-        {loading ? (
-          <SessionCardSkeletons />
-        ) : error ? (
-          <ErrorState message={error} />
-        ) : sessions.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="space-y-2">
-            {sessions.map((s) => (
-              <SessionCard key={s.id} session={s} onDelete={onDelete} />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
-    </aside>
+          {/* Sidebar panel */}
+          <motion.aside
+            key="sidebar-panel"
+            className="absolute inset-y-0 left-0 z-40 flex w-80 flex-col border-r border-border/50 bg-background/95 shadow-xl backdrop-blur-xl"
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Presentation className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">Past Presentations</h2>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="Close sidebar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <ScrollArea className="flex-1 px-3 py-3">
+              {loading ? (
+                <SessionCardSkeletons />
+              ) : error ? (
+                <ErrorState message={error} />
+              ) : sessions.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <div className="space-y-2">
+                  {sessions.map((s) => (
+                    <SessionCard key={s.id} session={s} onDelete={onDelete} />
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
   )
 }

@@ -26,7 +26,7 @@ import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
 import { formatFileSize, formatElapsed, formatSlideContextForChat } from "@/lib/format-utils"
-import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER, FOLLOW_UPS_DEFINE, FOLLOW_UPS_PRESENT, FOLLOW_UPS_QA } from "@/lib/constants"
+import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER, FOLLOW_UPS_DEFINE, FOLLOW_UPS_PRESENT, FOLLOW_UPS_CHAT } from "@/lib/constants"
 import { FadeIn } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
 import { PresentationSlideViewer } from "@/components/presentation-slide-viewer"
@@ -133,6 +133,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const pendingUploadRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const recordingInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const presentationPdfInputRef = useRef<HTMLInputElement>(null)
   const [presentationSlideIndex, setPresentationSlideIndex] = useState(1)
@@ -198,14 +199,17 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     measureWidths()
   }, [setupTopic, setupAudience, setupGoal, sizerIndex, measureWidths])
 
-  // Enable animated transitions only after the first paint so the
-  // initial measurement snaps instantly instead of animating in.
-  useEffect(() => { hasMeasuredRef.current = true }, [])
-
   // Re-measure once custom fonts finish loading — the fallback font
   // has different metrics, which makes the underlines the wrong width.
+  // Only enable animated transitions AFTER fonts have loaded so the
+  // font-swap re-measurement snaps instantly instead of visibly sliding.
   useEffect(() => {
-    document.fonts.ready.then(measureWidths)
+    document.fonts.ready.then(() => {
+      measureWidths()
+      // Enable animated transitions only after the font-load measurement
+      // so neither the initial render nor the font swap animates.
+      requestAnimationFrame(() => { hasMeasuredRef.current = true })
+    })
   }, [measureWidths])
 
   /* ── Satisfied window + audience pulse ── */
@@ -323,6 +327,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const isBusy = isCompressing || isTranscribing || isResearching || isStreaming
   const isInputDisabled = isBusy || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording
   const isEmptyState = (messages.length === 1 && messages[0].role === "assistant") || setupPhase === "uploading"
+  const chatMode = stage === "present" && !presentationMode
 
   const faceState: FaceState = recorder.isRecording ? "listening"
     : isProcessingHeld ? "thinking"
@@ -354,9 +359,13 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const lastMessage = messages[messages.length - 1]
   const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && (lastMessage.content?.length ?? 0) > 0 && stage !== 'feedback'
 
+  // Place the research card after the first user message (the context message).
+  // This is stable from the moment chat starts — no jumping when Vera's response streams in.
+  const researchCardAnchorId = messages.find((m) => m.role === "user")?.id ?? null
+
   const followUps = stage === 'define' ? FOLLOW_UPS_DEFINE
+    : chatMode ? FOLLOW_UPS_CHAT
     : stage === 'present' ? FOLLOW_UPS_PRESENT
-    : stage === 'qa' ? FOLLOW_UPS_QA
     : stage === 'followup' ? FOLLOW_UPS_LATER
     : exchangeCount <= 1 ? FOLLOW_UPS_EARLY
     : FOLLOW_UPS_LATER
@@ -477,7 +486,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     })
   }
 
-  // When the Q&A auto-completes (stage → followup), save and navigate
+  // When feedback completes (stage → followup), save and navigate
   useEffect(() => {
     if (stage === "followup" && !sessionSaveTriggered.current) {
       saveAndNavigateToFeedback()
@@ -512,7 +521,12 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   // Transition setup phase: researching → review when research finishes
   useEffect(() => {
     if (setupPhase === "researching" && !isResearching) {
-      setSetupPhase(researchMeta ? "review" : "mode-select")
+      if (researchMeta) {
+        setSetupPhase("review")
+      } else {
+        toast("Audience research unavailable — proceeding without it")
+        setSetupPhase("mode-select")
+      }
     }
   }, [setupPhase, isResearching, researchMeta])
 
@@ -658,10 +672,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       finishPresentation()
       return
     }
-    if (text === "__SKIP_TO_FEEDBACK__") {
-      saveAndNavigateToFeedback()
-      return
-    }
     if (text === "__UPLOAD_ANOTHER__") {
       fileInputRef.current?.click()
       return
@@ -687,19 +697,18 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     const file = e.target.files?.[0]
     if (!file) { pendingUploadRef.current = false; return }
 
-    // Coming from setup flow — commit and enter uploading phase
+    // Coming from upload-recording flow — go straight to feedback after transcription
     if (pendingUploadRef.current) {
       pendingUploadRef.current = false
-      const setupCtx = buildSetupContext()
-      if (setupCtx) startPresentation(setupCtx)
       const context = buildContextMessage()
       if (context) addMessage(context)
-      setSetupPhase("uploading")
+      setNavigatingToFeedback(true)
     }
 
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
     isPdf ? handlePdfAnalysis(file) : uploadFile(file)
     if (fileInputRef.current) fileInputRef.current.value = ""
+    if (recordingInputRef.current) recordingInputRef.current.value = ""
   }
 
   function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -806,7 +815,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     if (mode === "upload-recording") {
       // Defer commitment until file is actually selected
       pendingUploadRef.current = true
-      fileInputRef.current?.click()
+      recordingInputRef.current?.click()
       return
     }
 
@@ -844,6 +853,53 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       handleSetupSubmit()
     }
   }
+
+  // Enter to proceed from research review phase
+  useEffect(() => {
+    if (setupPhase !== "review" || !researchMeta) return
+
+    // Wait for keyup so we don't catch the Enter that triggered the research
+    let armed = false
+    function handleKeyUp(e: KeyboardEvent) {
+      if (e.key === "Enter") armed = true
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Enter" && armed) {
+        e.preventDefault()
+        setSetupPhase("mode-select")
+      }
+    }
+
+    window.addEventListener("keyup", handleKeyUp)
+    window.addEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keyup", handleKeyUp)
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [setupPhase, researchMeta])
+
+  // Enter to default to "present live" on mode-select phase
+  useEffect(() => {
+    if (setupPhase !== "mode-select") return
+
+    let armed = false
+    function handleKeyUp(e: KeyboardEvent) {
+      if (e.key === "Enter") armed = true
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Enter" && armed) {
+        e.preventDefault()
+        handleModeSelect("present")
+      }
+    }
+
+    window.addEventListener("keyup", handleKeyUp)
+    window.addEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keyup", handleKeyUp)
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [setupPhase])
 
   /* ── Shared recording overlay (used in both input bars) ── */
   const recordingContent = (
@@ -1220,39 +1276,32 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                         <p className="mt-1 text-sm text-muted-foreground/60">Choose how you&apos;d like to deliver your presentation</p>
                       </div>
 
-                      <div className="flex flex-col gap-2 w-full max-w-xs">
-                        <button
-                          type="button"
-                          onClick={() => handleModeSelect("present")}
-                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
-                        >
-                          <Mic className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
-                          <div>
-                            <p className="text-sm text-foreground/80">Present live</p>
-                            <p className="text-xs text-muted-foreground/40">Record yourself presenting in real time</p>
-                          </div>
-                        </button>
+                      <button
+                        type="button"
+                        onClick={() => handleModeSelect("present")}
+                        className="group flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-6 py-3 text-sm font-medium text-foreground transition-all hover:bg-primary/10 hover:border-primary/40 active:scale-[0.98]"
+                      >
+                        <Mic className="h-4 w-4 text-primary/70" />
+                        Present live
+                      </button>
+
+                      <div className="flex items-center gap-3 mt-2">
                         <button
                           type="button"
                           onClick={() => handleModeSelect("upload-recording")}
-                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                         >
-                          <Upload className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
-                          <div>
-                            <p className="text-sm text-foreground/80">Upload recording</p>
-                            <p className="text-xs text-muted-foreground/40">Upload an audio or video file</p>
-                          </div>
+                          <Upload className="h-3 w-3" />
+                          Upload
                         </button>
+                        <span className="text-[11px] text-muted-foreground/30">or</span>
                         <button
                           type="button"
                           onClick={() => handleModeSelect("just-chat")}
-                          className="group flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                         >
-                          <Send className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70" />
-                          <div>
-                            <p className="text-sm text-foreground/80">Just chat</p>
-                            <p className="text-xs text-muted-foreground/40">Talk through your presentation in text</p>
-                          </div>
+                          <Send className="h-3 w-3" />
+                          Chat
                         </button>
                       </div>
                     </motion.div>
@@ -1307,20 +1356,24 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                   {messages.map((msg) => {
                     if (msg.role === "assistant" && !msg.content) return null
                     const isFeedbackMessage = msg.id === feedbackMessageId
+                    const showResearchAfter = researchMeta && !isResearching && msg.id === researchCardAnchorId
                     return (
-                      <div key={msg.id}>
-                        {msg.role === "assistant" ? (
-                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-                            <div className={isFeedbackMessage ? "rounded-xl border border-primary/10 bg-primary/[0.02] p-5" : ""}>
-                              <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
-                                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <React.Fragment key={msg.id}>
+                        <div>
+                          {msg.role === "assistant" ? (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
+                              <div className={isFeedbackMessage ? "rounded-xl border border-primary/10 bg-primary/[0.02] p-5" : ""}>
+                                <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
+                                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                </div>
                               </div>
-                            </div>
-                          </motion.div>
-                        ) : (
-                          <UserBubble msg={msg} />
-                        )}
-                      </div>
+                            </motion.div>
+                          ) : (
+                            <UserBubble msg={msg} />
+                          )}
+                        </div>
+                        {showResearchAfter && <ResearchCard meta={researchMeta} />}
+                      </React.Fragment>
                     )
                   })}
 
@@ -1342,8 +1395,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                       <span className="text-sm text-muted-foreground">Researching your audience</span>
                     </div>
                   )}
-                  {researchMeta && !isResearching && <ResearchCard meta={researchMeta} />}
-                  {isStreaming && messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === "" && (
+                  {isStreaming && !chatMode && messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === "" && (
                     <div className="flex items-center gap-3">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
                       <span className="text-sm text-muted-foreground">Analyzing your presentation</span>
@@ -1377,17 +1429,17 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                   }`}>
                     {recorder.isRecording ? recordingContent : (
                       <>
-                        <button type="button" onClick={() => fileInputRef.current?.click()}
+                        <button type="button" onClick={() => (chatMode ? pdfInputRef : fileInputRef).current?.click()}
                           disabled={isBusy || freeLimitReached || slideReview.isAnalyzing}
                           className="absolute left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                           aria-label="Attach a file">
                           <Paperclip className="h-4 w-4" />
                         </button>
-                        <textarea value={input} onChange={(e) => setInput(e.target.value)}
+                        <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(e) } }}
                           placeholder="Describe your audience or ask for feedback..."
-                          rows={1} disabled={isInputDisabled}
-                          className="h-full w-full resize-none bg-transparent py-3 pl-12 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50 sm:py-3.5"
+                          disabled={isInputDisabled}
+                          className="h-full w-full bg-transparent pl-12 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
                         />
                         <button type="button" onClick={handleStartRecording}
                           disabled={isBusy || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
@@ -1395,8 +1447,8 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                           aria-label="Start recording">
                           <Mic className="h-4 w-4" />
                         </button>
-                        {input.trim() ? (
-                          <button type="submit" disabled={isInputDisabled}
+                        {input.trim() || chatMode ? (
+                          <button type="submit" disabled={isInputDisabled || !input.trim()}
                             className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
                             aria-label="Send message">
                             {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -1484,16 +1536,23 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                   <div className="mt-8 flex h-10 items-center justify-center gap-3">
                     {(faceState === "idle" || faceState === "satisfied") && !isBusy && (
                       <>
-                        {/* "Add slides" button — shown before first recording when no slides uploaded */}
+                        {/* "Add slides" button or loading indicator */}
                         {!transcript && !hasPresentationSlides && (
-                          <button
-                            type="button"
-                            onClick={() => presentationPdfInputRef.current?.click()}
-                            className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            Add slides
-                          </button>
+                          slideReview.progress.step !== 'idle' && slideReview.progress.step !== 'done' && slideReview.progress.step !== 'error' ? (
+                            <div className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Loading slides...
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => presentationPdfInputRef.current?.click()}
+                              className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              Add slides
+                            </button>
+                          )
                         )}
                         <button
                           ref={continueRef}
@@ -1509,6 +1568,8 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                             type="button"
                             onClick={() => {
                               stopSpeaking()
+                              setNavigatingToFeedback(true)
+                              setPresentationMode(false)
                               finishPresentation()
                             }}
                             className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-2.5 text-sm text-primary/80 hover:bg-primary/10 hover:text-primary transition-colors"
@@ -1517,20 +1578,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                           </button>
                         )}
                       </>
-                    )}
-
-                    {stage === 'qa' && !recorder.isRecording && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          stopSpeaking()
-                          setPresentationMode(false)
-                          saveAndNavigateToFeedback()
-                        }}
-                        className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
-                      >
-                        Skip to feedback
-                      </button>
                     )}
 
                     {recorder.isRecording && (
@@ -1570,19 +1617,24 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
 
               return hasPresentationSlides ? (
                 <div className="flex h-full w-full">
-                  {/* Left: face + captions + controls (~55%) */}
-                  <div className="flex w-[55%] flex-col">
+                  {/* Left: face + captions + controls */}
+                  <div className="flex flex-1 flex-col md:w-[55%]">
                     {faceColumn}
                   </div>
-                  {/* Right: slide viewer (~45%) — hidden on mobile */}
-                  <div className="hidden md:flex w-[45%] border-l border-border/60">
+                  {/* Right: slide viewer — hidden on mobile, animates in */}
+                  <motion.div
+                    className="hidden md:flex w-[45%] border-l border-border/60"
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: "45%", opacity: 1 }}
+                    transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  >
                     <PresentationSlideViewer
                       thumbnails={slideReview.thumbnails}
                       currentSlide={presentationSlideIndex}
                       onSlideChange={setPresentationSlideIndex}
                       progress={slideReview.progress}
                     />
-                  </div>
+                  </motion.div>
                 </div>
               ) : faceColumn
             })()}
@@ -1604,24 +1656,17 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
 
       {/* Hidden file inputs */}
       <input ref={fileInputRef} type="file" accept="video/*,audio/*,.pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Upload video, audio, or PDF" />
+      <input ref={recordingInputRef} type="file" accept="video/*,audio/*" onChange={handleFileUpload} className="hidden" aria-label="Upload video or audio recording" />
       <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePdfUpload} className="hidden" aria-label="Upload PDF slides" />
       <input ref={presentationPdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePresentationSlideUpload} className="hidden" aria-label="Add slides to presentation" />
 
       {/* Transition overlay — covers everything instantly to prevent flash */}
-      <AnimatePresence>
-        {navigatingToFeedback && (
-          <motion.div
-            key="feedback-transition"
-            className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.2 }}
-          >
-            <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
-            <p className="mt-4 text-sm text-muted-foreground">Preparing your feedback...</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {navigatingToFeedback && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
+          <p className="mt-4 text-sm text-muted-foreground">Preparing your feedback...</p>
+        </div>
+      )}
 
       {/* Free plan limit dialog */}
       <Dialog open={showFreeLimitDialog} onOpenChange={setShowFreeLimitDialog}>

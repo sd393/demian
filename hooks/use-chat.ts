@@ -53,8 +53,6 @@ export function useChat(authToken?: string | null) {
   // Stage machine state
   const [stage, setStage] = useState<CoachingStage>('define')
   const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
-  const [qaQuestionsAsked, setQaQuestionsAsked] = useState(0)
-
   // Audience pulse history — accumulates all pulse labels during the session
   const [audiencePulseHistory, setAudiencePulseHistory] = useState<{ text: string; emotion: string }[]>([])
   const audiencePulseHistoryRef = useRef<{ text: string; emotion: string }[]>([])
@@ -68,8 +66,6 @@ export function useChat(authToken?: string | null) {
   const authTokenRef = useRef<string | null>(null)
   const stageRef = useRef<CoachingStage>('define')
   const setupContextRef = useRef<SetupContext | null>(null)
-  const qaQuestionsAskedRef = useRef(0)
-
   // Keep refs in sync with state on each render
   messagesRef.current = messages
   transcriptRef.current = transcript
@@ -78,7 +74,6 @@ export function useChat(authToken?: string | null) {
   authTokenRef.current = authToken ?? null
   stageRef.current = stage
   setupContextRef.current = setupContext
-  qaQuestionsAskedRef.current = qaQuestionsAsked
 
   function abortInFlight() {
     if (abortControllerRef.current) {
@@ -93,7 +88,6 @@ export function useChat(authToken?: string | null) {
       currentTranscript: string | null,
       overrides?: {
         stage?: CoachingStage
-        qaQuestionsAsked?: number
       }
     ) => {
       setIsStreaming(true)
@@ -107,6 +101,10 @@ export function useChat(authToken?: string | null) {
       const controller = new AbortController()
       abortControllerRef.current = controller
 
+      // Hoisted so the catch block can flush on abort
+      let accumulated = ''
+      let rafId: number | null = null
+
       try {
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -117,7 +115,6 @@ export function useChat(authToken?: string | null) {
         }
 
         const effectiveStage = overrides?.stage ?? stageRef.current
-        const effectiveQA = overrides?.qaQuestionsAsked ?? qaQuestionsAskedRef.current
 
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -134,7 +131,6 @@ export function useChat(authToken?: string | null) {
             slideContext: slideContextRef.current ?? undefined,
             stage: effectiveStage,
             setupContext: setupContextRef.current ?? undefined,
-            qaQuestionsAsked: effectiveQA,
           }),
           signal: controller.signal,
         })
@@ -157,8 +153,6 @@ export function useChat(authToken?: string | null) {
         const reader = response.body!.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
-        let accumulated = ''
-        let rafId: number | null = null
 
         // Flush accumulated content to state via requestAnimationFrame
         function flushToState() {
@@ -214,7 +208,22 @@ export function useChat(authToken?: string | null) {
         )
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
-          // Request was intentionally cancelled
+          // Flush whatever content accumulated before the abort
+          if (rafId !== null) cancelAnimationFrame(rafId)
+          if (accumulated) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMessageId
+                  ? { ...m, content: accumulated }
+                  : m
+              )
+            )
+          } else {
+            // Nothing accumulated — remove the empty placeholder
+            setMessages((prev) =>
+              prev.filter((m) => m.id !== assistantMessageId)
+            )
+          }
           return
         }
         // Remove the empty assistant message on error
@@ -288,6 +297,8 @@ export function useChat(authToken?: string | null) {
                   briefing: data.researchContext,
                 })
                 result = data.researchContext
+              } else if (data.event === 'error') {
+                console.warn('[research] Server-side pipeline error:', data.error)
               }
             } catch {
               // Skip malformed chunks
@@ -296,8 +307,8 @@ export function useChat(authToken?: string | null) {
         }
 
         return result
-      } catch {
-        console.warn('[research] Early research error, proceeding without enrichment')
+      } catch (err) {
+        console.warn('[research] Early research error, proceeding without enrichment', err)
         return null
       } finally {
         setIsResearching(false)
@@ -379,6 +390,8 @@ export function useChat(authToken?: string | null) {
                   briefing: data.researchContext,
                 })
                 result = data.researchContext
+              } else if (data.event === 'error') {
+                console.warn('[research] Server-side pipeline error:', data.error)
               }
             } catch {
               // Skip malformed chunks
@@ -387,8 +400,8 @@ export function useChat(authToken?: string | null) {
         }
 
         return result
-      } catch {
-        console.warn('[research] Pipeline error, proceeding without enrichment')
+      } catch (err) {
+        console.warn('[research] Pipeline error, proceeding without enrichment', err)
         return null
       } finally {
         setIsResearching(false)
@@ -416,26 +429,7 @@ export function useChat(authToken?: string | null) {
       messagesRef.current = updatedMessages
       setMessages(updatedMessages)
 
-      // During Q&A, increment question count for each user answer
-      if (stageRef.current === 'qa') {
-        const newCount = qaQuestionsAskedRef.current + 1
-        setQaQuestionsAsked(newCount)
-        qaQuestionsAskedRef.current = newCount
-      }
-
       await streamChatResponse(updatedMessages, transcriptRef.current)
-
-      // After Q&A response, check if we should transition to feedback
-      if (stageRef.current === 'qa' && qaQuestionsAskedRef.current >= 4) {
-        setStage('feedback')
-        stageRef.current = 'feedback'
-        // Auto-trigger feedback
-        const feedbackMessages = messagesRef.current
-        await streamChatResponse(feedbackMessages, transcriptRef.current, { stage: 'feedback' })
-        // After feedback, transition to followup
-        setStage('followup')
-        stageRef.current = 'followup'
-      }
     },
     [streamChatResponse]
   )
@@ -451,27 +445,12 @@ export function useChat(authToken?: string | null) {
   )
 
   const finishPresentation = useCallback(
-    async () => {
-      setStage('qa')
-      stageRef.current = 'qa'
-      // Trigger Vera's first Q&A response
-      const currentMessages = messagesRef.current
-      await streamChatResponse(currentMessages, transcriptRef.current, { stage: 'qa' })
-    },
-    [streamChatResponse]
-  )
-
-  const skipToFeedback = useCallback(
-    async () => {
-      setStage('feedback')
-      stageRef.current = 'feedback'
-      const currentMessages = messagesRef.current
-      await streamChatResponse(currentMessages, transcriptRef.current, { stage: 'feedback' })
-      // After feedback completes, transition to followup
+    () => {
+      // Skip straight to followup — the feedback page handles scoring/display
       setStage('followup')
       stageRef.current = 'followup'
     },
-    [streamChatResponse]
+    []
   )
 
   const uploadFile = useCallback(
@@ -568,8 +547,13 @@ export function useChat(authToken?: string | null) {
         messagesRef.current = updatedWithTranscript
         setMessages(updatedWithTranscript)
 
-        // Transition to Q&A after upload (skip present stage since they uploaded)
-        await finishPresentation()
+        if (stageRef.current === 'present') {
+          // Live presentation: stream coaching feedback, stay in present stage
+          await streamChatResponse(updatedWithTranscript, newTranscript)
+        } else {
+          // Upload-recording flow: skip straight to feedback
+          await finishPresentation()
+        }
       } catch (err: unknown) {
         setIsCompressing(false)
         // Only silently swallow abort if WE intentionally canceled (user
@@ -589,7 +573,7 @@ export function useChat(authToken?: string | null) {
         setIsTranscribing(false)
       }
     },
-    [finishPresentation]
+    [finishPresentation, streamChatResponse]
   )
 
   // Add a message to the timeline without triggering a chat completion.
@@ -637,8 +621,6 @@ export function useChat(authToken?: string | null) {
     stageRef.current = 'define'
     setSetupContext(null)
     setupContextRef.current = null
-    setQaQuestionsAsked(0)
-    qaQuestionsAskedRef.current = 0
     setAudiencePulseHistory([])
     audiencePulseHistoryRef.current = []
     setIsCompressing(false)
@@ -663,7 +645,6 @@ export function useChat(authToken?: string | null) {
     freeLimitReached,
     stage,
     setupContext,
-    qaQuestionsAsked,
     audiencePulseHistory,
     appendPulseLabels,
     sendMessage,
@@ -674,7 +655,6 @@ export function useChat(authToken?: string | null) {
     resetConversation,
     startPresentation,
     finishPresentation,
-    skipToFeedback,
     startResearchEarly,
   }
 }

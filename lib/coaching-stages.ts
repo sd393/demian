@@ -1,4 +1,4 @@
-export type CoachingStage = 'define' | 'present' | 'qa' | 'feedback' | 'followup'
+export type CoachingStage = 'define' | 'present' | 'feedback' | 'followup'
 
 export interface SetupContext {
   topic?: string

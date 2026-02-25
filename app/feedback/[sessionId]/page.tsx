@@ -154,7 +154,7 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
         />
       </div>
 
-      <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <div className="mx-auto max-w-3xl px-4 pt-12 pb-6 sm:px-6">
         {/* ── Back button ── */}
         <motion.div
           initial={{ opacity: 0, x: -8 }}
@@ -267,10 +267,10 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
         </div>
 
         {/* Footer */}
-        <div className="mt-16 text-center">
+        <div className="mt-10 pb-2 text-center">
           <a
             href="/chat"
-            className="inline-flex items-center gap-2 rounded-full border border-border/60 px-5 py-2 text-sm text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
           >
             Start a new session
             <ArrowLeft className="h-3.5 w-3.5 rotate-180" />

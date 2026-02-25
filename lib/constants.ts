@@ -39,8 +39,9 @@ export const FOLLOW_UPS_PRESENT = [
   { label: "Upload another clip", message: "__UPLOAD_ANOTHER__" },
 ]
 
-export const FOLLOW_UPS_QA = [
-  { label: "Skip to feedback", message: "__SKIP_TO_FEEDBACK__" },
+export const FOLLOW_UPS_CHAT = [
+  { label: "Get feedback", message: "__FINISH_PRESENTING__" },
+  { label: "Upload slides", message: "__START_UPLOAD_SLIDES__" },
 ]
 
 export const STEP_LABELS: Record<string, string> = {
