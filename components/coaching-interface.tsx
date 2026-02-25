@@ -584,8 +584,10 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     savedSetupRef.current = { context: setupCtx, message: contextMsg }
 
     if (mode === "present") {
-      presentationCommittedRef.current = false
+      presentationCommittedRef.current = true
       setPresentationMode(true)
+      if (setupCtx) startPresentation(setupCtx)
+      if (contextMsg) addMessage(contextMsg)
       if (contextMsg) fetchPulseLabels([{ role: "user", content: `I'm about to present to you. ${contextMsg}` }])
       return
     }

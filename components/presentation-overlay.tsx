@@ -155,8 +155,8 @@ export const PresentationOverlay = React.memo(function PresentationOverlay({
         <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
           {(faceState === "idle" || faceState === "satisfied") && !isBusy && (
             <>
-              {/* "Add slides" button or loading indicator */}
-              {!hasPresentationSlides && (
+              {/* "Add slides" button or loading indicator — hidden once user has recorded without slides */}
+              {!hasPresentationSlides && !transcript && (
                 slideReview.progress.step !== 'idle' && slideReview.progress.step !== 'done' && slideReview.progress.step !== 'error' ? (
                   <div className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3.5 py-2 text-xs sm:px-5 sm:py-2.5 sm:text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -233,7 +233,7 @@ export const PresentationOverlay = React.memo(function PresentationOverlay({
     <motion.div
       key="presentation-overlay"
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background"
-      initial={{ opacity: 0 }}
+      initial={false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
