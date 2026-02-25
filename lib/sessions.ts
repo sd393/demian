@@ -13,6 +13,7 @@ import {
   type Timestamp,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { buildAuthHeaders } from "@/lib/api-utils"
 import type { SlideFeedback, DeckFeedback } from "@/backend/slides"
 
 /* ── Slide review data (structured) ── */
@@ -162,10 +163,7 @@ export async function deleteSession(
 ): Promise<void> {
   const res = await fetch("/api/sessions/delete", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      "Content-Type": "application/json",
-    },
+    headers: buildAuthHeaders(authToken),
     body: JSON.stringify({ sessionId }),
   })
   if (!res.ok) {

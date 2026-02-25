@@ -190,4 +190,85 @@ describe('POST /api/chat', () => {
     const body = await response.json()
     expect(body.error).toContain('Invalid or expired token')
   })
+
+  it('includes transcript in system prompt when provided', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Give me feedback' }],
+      transcript: 'Good morning, today I will present our Q4 strategy.',
+      stage: 'feedback',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    const systemMsg = callArgs.messages.find((m: { role: string }) => m.role === 'system')
+    expect(systemMsg.content).toContain('Good morning, today I will present our Q4 strategy.')
+    expect(systemMsg.content).toContain('TRANSCRIPT')
+  })
+
+  it('includes researchContext in system prompt when provided', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Give me feedback' }],
+      researchContext: 'VCs prioritize unit economics and market size above all else.',
+      stage: 'feedback',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    const systemMsg = callArgs.messages.find((m: { role: string }) => m.role === 'system')
+    expect(systemMsg.content).toContain('VCs prioritize unit economics and market size above all else.')
+    expect(systemMsg.content).toContain('AUDIENCE RESEARCH BRIEFING')
+  })
+
+  it('uses max_tokens 3000 for feedback stage', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Give me feedback' }],
+      stage: 'feedback',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.max_tokens).toBe(3000)
+  })
+
+  it('uses max_tokens 2000 for non-feedback stages', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stage: 'present',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.max_tokens).toBe(2000)
+  })
+
+  it('includes setupContext in system prompt when provided', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: {
+        topic: 'Series A pitch',
+        audience: 'Angel investors',
+        goal: 'Secure seed funding',
+      },
+      stage: 'define',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    const systemMsg = callArgs.messages.find((m: { role: string }) => m.role === 'system')
+    expect(systemMsg.content).toContain('Series A pitch')
+    expect(systemMsg.content).toContain('Angel investors')
+    expect(systemMsg.content).toContain('Secure seed funding')
+  })
+
+  it('returns 500 when OpenAI create rejects', async () => {
+    mockCreate.mockRejectedValue(new Error('OpenAI API failure'))
+
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+    })
+    const response = await POST(request)
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.error).toContain('Failed to generate')
+  })
 })

@@ -1,18 +1,19 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { openai } from '@/backend/openai'
 import { chatRequestSchema, sanitizeInput } from '@/backend/validation'
 import { buildSystemPrompt } from '@/backend/system-prompt'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import { requireAuth } from '@/backend/auth'
 import { getUserPlan } from '@/backend/subscription'
 import { SSE_HEADERS } from '@/backend/request-utils'
 
 export async function handleChat(request: NextRequest) {
   const ip = getClientIp(request)
-  if (!checkRateLimit(ip, 10, 60_000).allowed) {
-    return new Response(
-      JSON.stringify({ error: 'Too many requests. Please wait a moment.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } }
+  if (!checkRateLimit(ip, RATE_LIMITS.chatIp.limit, RATE_LIMITS.chatIp.windowMs).allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
     )
   }
 
@@ -27,13 +28,13 @@ export async function handleChat(request: NextRequest) {
   const { plan } = await getUserPlan(authResult.uid)
   if (plan !== 'pro') {
     // Free authenticated users: 20 messages per 24h
-    if (!checkRateLimit('free:' + authResult.uid, 20, 86_400_000).allowed) {
-      return new Response(
-        JSON.stringify({
+    if (!checkRateLimit('free:' + authResult.uid, RATE_LIMITS.chatFreeUser.limit, RATE_LIMITS.chatFreeUser.windowMs).allowed) {
+      return NextResponse.json(
+        {
           error: 'You\'ve reached your daily message limit. Upgrade to Pro for unlimited messages.',
           code: 'free_limit_reached',
-        }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } }
+        },
+        { status: 403 }
       )
     }
   }
@@ -43,9 +44,9 @@ export async function handleChat(request: NextRequest) {
 
     const parsed = chatRequestSchema.safeParse(body)
     if (!parsed.success) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid request format' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      return NextResponse.json(
+        { error: 'Invalid request format' },
+        { status: 400 }
       )
     }
 
@@ -103,11 +104,9 @@ export async function handleChat(request: NextRequest) {
     return new Response(readable, { headers: SSE_HEADERS })
   } catch (error) {
     console.error('Chat error:', error)
-    return new Response(
-      JSON.stringify({
-        error: 'Failed to generate response. Please try again.',
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Failed to generate response. Please try again.' },
+      { status: 500 }
     )
   }
 }

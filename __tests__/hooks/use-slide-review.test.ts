@@ -369,7 +369,7 @@ describe('useSlideReview', () => {
 
     const fetchCall = fetchSpy.mock.calls[0]
     const headers = fetchCall[1].headers
-    expect(headers.authorization).toBe('Bearer my-auth-token')
+    expect(headers.Authorization).toBe('Bearer my-auth-token')
   })
 
   it('omits authorization header when no authToken', async () => {

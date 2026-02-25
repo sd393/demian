@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useRef, useCallback } from "react"
+import { buildAuthHeaders } from "@/lib/api-utils"
+import { parseSSEStream, createRAFBatcher } from "@/lib/sse-utils"
 
 export interface FollowUpMessage {
   id: string
@@ -78,10 +80,7 @@ export function useFollowUpChat(options: UseFollowUpChatOptions) {
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${opts.authToken}`,
-        },
+        headers: buildAuthHeaders(opts.authToken),
         body: JSON.stringify({
           messages: apiMessages,
           transcript: opts.transcript ?? undefined,
@@ -98,55 +97,23 @@ export function useFollowUpChat(options: UseFollowUpChatOptions) {
       }
 
       const reader = response.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let accumulated = ""
-      let rafId: number | null = null
-
-      function flushToState() {
-        const snapshot = accumulated
+      const batcher = createRAFBatcher((content) =>
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMessageId ? { ...m, content: snapshot } : m
+            m.id === assistantMessageId ? { ...m, content } : m
           )
         )
-        rafId = null
-      }
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n\n")
-        buffer = lines.pop() || ""
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          const data = line.slice(6)
-          if (data === "[DONE]") break
-
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.content) {
-              accumulated += parsed.content
-              if (rafId === null) {
-                rafId = requestAnimationFrame(flushToState)
-              }
-            }
-          } catch {
-            // Skip malformed chunks
-          }
-        }
-      }
-
-      // Final flush
-      if (rafId !== null) cancelAnimationFrame(rafId)
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantMessageId ? { ...m, content: accumulated } : m
-        )
       )
+
+      await parseSSEStream<{ content?: string }>(reader, {
+        onEvent: (parsed) => {
+          if (parsed.content) {
+            batcher.append(parsed.content)
+          }
+        },
+      })
+
+      batcher.flush()
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return
       // Remove the empty assistant message on error

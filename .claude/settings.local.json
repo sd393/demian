@@ -21,7 +21,11 @@
       "Bash(pnpm lint:*)",
       "Bash(git:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(lsof:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(pnpm vitest:*)"
     ]
   }
 }

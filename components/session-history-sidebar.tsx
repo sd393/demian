@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { Presentation, FolderOpen, AlertCircle, X, Trash2 } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
@@ -9,7 +10,9 @@ import type { SessionSummary } from "@/lib/sessions"
 
 /* ── Session card ── */
 
-function SessionCard({
+import React from "react"
+
+const SessionCard = React.memo(function SessionCard({
   session,
   onDelete,
 }: {
@@ -59,7 +62,7 @@ function SessionCard({
       </div>
     </Link>
   )
-}
+})
 
 /* ── Loading skeletons ── */
 
@@ -107,6 +110,39 @@ function ErrorState({ message }: { message: string }) {
   )
 }
 
+/* ── Session list with "Show more" cap ── */
+
+const INITIAL_DISPLAY_COUNT = 20
+
+function SessionList({
+  sessions,
+  onDelete,
+}: {
+  sessions: SessionSummary[]
+  onDelete?: (id: string) => void
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? sessions : sessions.slice(0, INITIAL_DISPLAY_COUNT)
+  const hasMore = sessions.length > INITIAL_DISPLAY_COUNT
+
+  return (
+    <div className="space-y-2">
+      {visible.map((s) => (
+        <SessionCard key={s.id} session={s} onDelete={onDelete} />
+      ))}
+      {hasMore && !showAll && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full rounded-lg border border-border/40 py-2 text-xs text-muted-foreground transition-colors hover:border-primary/20 hover:text-foreground"
+        >
+          Show {sessions.length - INITIAL_DISPLAY_COUNT} more
+        </button>
+      )}
+    </div>
+  )
+}
+
 /* ── Main sidebar ── */
 
 interface SessionHistorySidebarProps {
@@ -145,7 +181,7 @@ export function SessionHistorySidebar({
           {/* Sidebar panel */}
           <motion.aside
             key="sidebar-panel"
-            className="absolute inset-y-0 left-0 z-40 flex w-80 flex-col border-r border-border/50 bg-background/95 shadow-xl backdrop-blur-xl"
+            className="absolute inset-y-0 left-0 z-40 flex w-[75vw] max-w-80 flex-col border-r border-border/50 bg-background/95 shadow-xl backdrop-blur-xl"
             initial={{ x: "-100%" }}
             animate={{ x: 0 }}
             exit={{ x: "-100%" }}
@@ -176,11 +212,7 @@ export function SessionHistorySidebar({
               ) : sessions.length === 0 ? (
                 <EmptyState />
               ) : (
-                <div className="space-y-2">
-                  {sessions.map((s) => (
-                    <SessionCard key={s.id} session={s} onDelete={onDelete} />
-                  ))}
-                </div>
+                <SessionList sessions={sessions} onDelete={onDelete} />
               )}
             </ScrollArea>
           </motion.aside>

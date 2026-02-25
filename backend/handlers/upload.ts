@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 
 export async function handleUploadRoute(request: NextRequest) {
   const ip = getClientIp(request)
-  if (!checkRateLimit(ip, 10, 60_000).allowed) {
+  if (!checkRateLimit(ip, RATE_LIMITS.upload.limit, RATE_LIMITS.upload.windowMs).allowed) {
     return NextResponse.json(
       { error: 'Too many requests. Please wait before uploading again.' },
       { status: 429 }

@@ -23,6 +23,7 @@ import {
   type User,
 } from "firebase/auth"
 import { auth } from "@/lib/firebase"
+import { buildAuthHeaders } from "@/lib/api-utils"
 
 interface AuthContextValue {
   user: User | null
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const token = await currentUser.getIdToken(true)
       const res = await fetch('/api/subscription', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       })
       if (res.ok) {
         const data = await res.json()

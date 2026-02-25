@@ -1,6 +1,7 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/backend/auth'
 import { checkRateLimit } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import { stripe } from '@/backend/stripe'
 import { ensureUserDoc, updateSubscription } from '@/backend/subscription'
 
@@ -9,10 +10,10 @@ export async function handleVerifyCheckout(request: NextRequest) {
   if (auth instanceof Response) return auth
 
   // Rate limit: 5 verify attempts per 60s per user
-  if (!checkRateLimit('verify-checkout:' + auth.uid, 5, 60_000).allowed) {
-    return new Response(
-      JSON.stringify({ error: 'Too many requests. Please wait a moment.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } }
+  if (!checkRateLimit('verify-checkout:' + auth.uid, RATE_LIMITS.verifyCheckout.limit, RATE_LIMITS.verifyCheckout.windowMs).allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
     )
   }
 
@@ -20,17 +21,17 @@ export async function handleVerifyCheckout(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid request body' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Invalid request body' },
+      { status: 400 }
     )
   }
 
   const sessionId = body.session_id
   if (!sessionId || typeof sessionId !== 'string') {
-    return new Response(
-      JSON.stringify({ error: 'Missing session_id' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Missing session_id' },
+      { status: 400 }
     )
   }
 
@@ -41,17 +42,17 @@ export async function handleVerifyCheckout(request: NextRequest) {
 
     // Verify the session belongs to this user
     if (session.metadata?.firebaseUid !== auth.uid) {
-      return new Response(
-        JSON.stringify({ error: 'Session does not belong to this user' }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      return NextResponse.json(
+        { error: 'Session does not belong to this user' },
+        { status: 403 }
       )
     }
 
     // Verify the session is complete and paid
     if (session.status !== 'complete' || session.payment_status !== 'paid') {
-      return new Response(
-        JSON.stringify({ error: 'Checkout session is not complete' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      return NextResponse.json(
+        { error: 'Checkout session is not complete' },
+        { status: 400 }
       )
     }
 
@@ -72,15 +73,12 @@ export async function handleVerifyCheckout(request: NextRequest) {
       stripeCustomerId,
     })
 
-    return new Response(
-      JSON.stringify({ plan: 'pro' }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
+    return NextResponse.json({ plan: 'pro' })
   } catch (error) {
     console.error('Verify checkout error:', error)
-    return new Response(
-      JSON.stringify({ error: 'Failed to verify checkout session' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Failed to verify checkout session' },
+      { status: 500 }
     )
   }
 }

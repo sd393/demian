@@ -1,41 +1,27 @@
 "use client"
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, type FormEvent } from "react"
+import React, { useState, useRef, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import ReactMarkdown from "react-markdown"
-import {
-  Send,
-  Paperclip,
-  FileVideo,
-  FileAudio,
-  Loader2,
-  Upload,
-  FileText,
-  Mic,
-  Square,
-  X,
-  ArrowRight,
-  Smile,
-} from "lucide-react"
+import dynamic from "next/dynamic"
 import { AnimatePresence, motion } from "framer-motion"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { useAuth } from "@/contexts/auth-context"
+import { buildAuthHeaders } from "@/lib/api-utils"
 import { saveSession, updateSessionScores, type SessionScores, type SessionScoresV2 } from "@/lib/sessions"
 import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
-import { formatFileSize, formatElapsed, formatSlideContextForChat } from "@/lib/format-utils"
+import { formatSlideContextForChat } from "@/lib/format-utils"
 import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER, FOLLOW_UPS_DEFINE, FOLLOW_UPS_PRESENT, FOLLOW_UPS_CHAT } from "@/lib/constants"
-import { FadeIn } from "@/components/motion"
-import { SlidePanel } from "@/components/slide-panel"
-import { PresentationSlideViewer } from "@/components/presentation-slide-viewer"
-import { validateSlideFile } from "@/backend/validation"
-import { AudioWaveform } from "@/components/audio-waveform"
-import { ResearchCard } from "@/components/research-card"
-import { AudienceFace, type FaceState, type FaceEmotion, isValidFaceEmotion } from "@/components/audience-face"
-import { StageIndicator } from "@/components/stages/stage-indicator"
+import { isValidFaceEmotion, type FaceState, type FaceEmotion } from "@/components/audience-face"
 import type { SetupContext } from "@/lib/coaching-stages"
+import { SetupWizard } from "@/components/setup-wizard"
+import { ChatView } from "@/components/chat-view"
+import { PresentationOverlay } from "@/components/presentation-overlay"
+
+const SlidePanel = dynamic(() => import("@/components/slide-panel").then(m => ({ default: m.SlidePanel })))
 import {
   Dialog,
   DialogContent,
@@ -44,18 +30,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-
-/* ── Constants ── */
-
-const SETUP_EXAMPLES = [
-  { topic: "my Series A pitch", audience: "VC investors", goal: "secure funding" },
-  { topic: "a Q3 revenue review", audience: "the board of directors", goal: "get buy-in" },
-  { topic: "our product roadmap", audience: "my engineering team", goal: "ship on time" },
-  { topic: "a keynote talk", audience: "500 conference attendees", goal: "inspire action" },
-  { topic: "a client proposal", audience: "the procurement team", goal: "close the deal" },
-]
-
-
 
 /* ── Thinking labels ── */
 
@@ -92,7 +66,6 @@ const LABELS_DEFAULT = [
   "Thinking about that...",
 ]
 
-
 /* ── Props ── */
 
 interface CoachingInterfaceProps {
@@ -117,102 +90,21 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const slideReview = useSlideReview(authToken)
   const hasSlidePanel = slideReview.panelOpen
 
-  const [input, setInput] = useState("")
-  const [inputPlaceholder, setInputPlaceholder] = useState("Describe your audience or ask for feedback...")
-  const [setupTopic, setSetupTopic] = useState("")
-  const [setupAudience, setSetupAudience] = useState("")
-  const [setupGoal, setSetupGoal] = useState("")
-  const [setupAdditional, setSetupAdditional] = useState("")
-  const [showAdditional, setShowAdditional] = useState(false)
-  const [setupPhase, setSetupPhase] = useState<"fields" | "researching" | "review" | "mode-select" | "uploading">("fields")
-  const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
-  const sessionSaveTriggered = useRef(false)
-  const [navigatingToFeedback, setNavigatingToFeedback] = useState(false)
+  /* ── State ── */
   const [presentationMode, setPresentationMode] = useState(false)
+  const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
+  const [navigatingToFeedback, setNavigatingToFeedback] = useState(false)
+  const sessionSaveTriggered = useRef(false)
   const presentationCommittedRef = useRef(false)
   const pendingUploadRef = useRef(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const recordingInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
-  const presentationPdfInputRef = useRef<HTMLInputElement>(null)
-  const [presentationSlideIndex, setPresentationSlideIndex] = useState(1)
 
-  /* ── Research snippet cycling ── */
-  const [researchSnippetIndex, setResearchSnippetIndex] = useState(0)
-  const researchSnippet = researchSearchTerms
-    ? researchSearchTerms[researchSnippetIndex % researchSearchTerms.length]
-    : null
+  // Saved setup context — persists after SetupWizard unmounts
+  const savedSetupRef = useRef<{ context: SetupContext | null; message: string | null }>({ context: null, message: null })
 
-  // Cycle through search terms once they arrive
-  useEffect(() => {
-    if (!researchSearchTerms || researchSearchTerms.length <= 1) return
-    setResearchSnippetIndex(0)
-    const interval = setInterval(
-      () => setResearchSnippetIndex((i) => (i + 1) % researchSearchTerms.length),
-      2500
-    )
-    return () => clearInterval(interval)
-  }, [researchSearchTerms])
-
-  /* ── Responsive placeholder ── */
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 640px)")
-    const update = () => setInputPlaceholder(mq.matches ? "Describe your audience or ask for feedback..." : "What's your presentation about?")
-    update()
-    mq.addEventListener("change", update)
-    return () => mq.removeEventListener("change", update)
-  }, [])
-
-  /* ── Setup example cycling + underline measurement ── */
-  const [exampleIndex, setExampleIndex] = useState(0)
-  // sizerIndex lags behind exampleIndex by the exit animation duration,
-  // so the container doesn't resize until the old text has faded out.
-  const [sizerIndex, setSizerIndex] = useState(0)
-
-  useEffect(() => {
-    const interval = setInterval(() => setExampleIndex((i) => (i + 1) % SETUP_EXAMPLES.length), 3000)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    const t = setTimeout(() => setSizerIndex(exampleIndex), 250)
-    return () => clearTimeout(t)
-  }, [exampleIndex])
-
-  const topicSizerRef = useRef<HTMLSpanElement>(null)
-  const audienceSizerRef = useRef<HTMLSpanElement>(null)
-  const goalSizerRef = useRef<HTMLSpanElement>(null)
-  const [blankWidths, setBlankWidths] = useState({ topic: 0, audience: 0, goal: 0 })
-
-  const hasMeasuredRef = useRef(false)
-
-  const measureWidths = useCallback(() => {
-    setBlankWidths({
-      topic: topicSizerRef.current?.offsetWidth ?? 0,
-      audience: audienceSizerRef.current?.offsetWidth ?? 0,
-      goal: goalSizerRef.current?.offsetWidth ?? 0,
-    })
-  }, [])
-
-  useLayoutEffect(() => {
-    measureWidths()
-  }, [setupTopic, setupAudience, setupGoal, sizerIndex, measureWidths])
-
-  // Re-measure once custom fonts finish loading — the fallback font
-  // has different metrics, which makes the underlines the wrong width.
-  // Only enable animated transitions AFTER fonts have loaded so the
-  // font-swap re-measurement snaps instantly instead of visibly sliding.
-  useEffect(() => {
-    document.fonts.ready.then(() => {
-      measureWidths()
-      // Enable animated transitions only after the font-load measurement
-      // so neither the initial render nor the font swap animates.
-      requestAnimationFrame(() => { hasMeasuredRef.current = true })
-    })
-  }, [measureWidths])
-
-  /* ── Satisfied window + audience pulse ── */
+  /* ── Audience pulse ── */
   const [satisfiedWindow, setSatisfiedWindow] = useState(false)
   const [pulseLabels, setPulseLabels] = useState<{ text: string; emotion: FaceEmotion }[]>([])
   const [pulseIndex, setPulseIndex] = useState(0)
@@ -226,11 +118,10 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const presentationModeRef = useRef(false)
   useEffect(() => { presentationModeRef.current = presentationMode }, [presentationMode])
 
-  // Stable ref to messages for use in callbacks (fetchPulseLabels, audio.onended)
+  // Stable ref to messages for use in callbacks
   const messagesRef = useRef(messages)
   messagesRef.current = messages
 
-  // Debug: log when a message has undefined content (race condition trace)
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production') {
       const bad = messages.find(m => m.content === undefined)
@@ -246,7 +137,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     if (recent.length === 0) return
     fetch("/api/audience-pulse", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAuthHeaders(),
       body: JSON.stringify({ messages: recent }),
     })
       .then(r => {
@@ -257,14 +148,12 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
         if (!Array.isArray(labels)) return
         const validLabels = labels
           .map((l: unknown) => {
-            // Handle {text, emotion} objects from updated API
             if (l && typeof l === "object" && "text" in l) {
               const obj = l as { text: unknown; emotion?: unknown }
               const text = typeof obj.text === "string" ? obj.text : ""
               const emotion: FaceEmotion = isValidFaceEmotion(obj.emotion) ? obj.emotion : "neutral"
               return text ? { text, emotion } : null
             }
-            // Backwards compat: plain string
             if (typeof l === "string") return { text: l, emotion: "neutral" as FaceEmotion }
             return null
           })
@@ -278,285 +167,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       .catch((err) => { console.warn("[audience-pulse] failed:", err) })
   }
 
-  useEffect(() => {
-    if (prevStreaming.current && !isStreaming) {
-      prevStreaming.current = false
-
-      // In presentation mode, TTS drives the satisfied state; otherwise flash immediately
-      let t: ReturnType<typeof setTimeout> | undefined
-      if (!presentationModeRef.current) {
-        setSatisfiedWindow(true)
-        t = setTimeout(() => setSatisfiedWindow(false), 2000)
-      }
-
-      fetchPulseLabels()
-
-      if (presentationModeRef.current) {
-        const lastAssistant = [...messagesRef.current].reverse().find(m => m.role === "assistant" && m.content)
-        if (lastAssistant?.content) speakText(lastAssistant.content)
-      }
-
-      return () => { if (t) clearTimeout(t) }
-    }
-    prevStreaming.current = isStreaming
-  }, [isStreaming, messages])
-
-  // Cycle through pulse labels every 4s
-  useEffect(() => {
-    if (pulseLabels.length <= 1) return
-    const t = setInterval(() => setPulseIndex(i => (i + 1) % pulseLabels.length), 4000)
-    return () => clearInterval(t)
-  }, [pulseLabels])
-
-  /* ── Held processing state (prevents gap flash between phases) ── */
-  const isProcessingRaw = isCompressing || isTranscribing || isResearching || isTTSLoading || (presentationMode && isStreaming)
-  const [isProcessingHeld, setIsProcessingHeld] = useState(false)
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-
-  useEffect(() => {
-    if (isProcessingRaw) {
-      clearTimeout(holdTimerRef.current)
-      setIsProcessingHeld(true)
-    } else {
-      holdTimerRef.current = setTimeout(() => setIsProcessingHeld(false), 500)
-    }
-    return () => clearTimeout(holdTimerRef.current)
-  }, [isProcessingRaw])
-
-  /* ── Derived state ── */
-  const isBusy = isCompressing || isTranscribing || isResearching || isStreaming
-  const isInputDisabled = isBusy || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording
-  const isEmptyState = (messages.length === 1 && messages[0].role === "assistant") || setupPhase === "uploading"
-  const chatMode = stage === "present" && !presentationMode
-
-  const faceState: FaceState = recorder.isRecording ? "listening"
-    : isProcessingHeld ? "thinking"
-    : ((!presentationMode && isStreaming) || isTTSSpeaking) ? "speaking"
-    : satisfiedWindow ? "satisfied"
-    : "idle"
-
-  // Pick a label once per thinking phase, not per render
-  const thinkingPhaseKey = isCompressing ? "compress"
-    : isTranscribing ? "transcribe"
-    : isResearching ? "research"
-    : (presentationMode && isStreaming) ? "stream"
-    : isTTSLoading ? "tts"
-    : isProcessingHeld ? "default"
-    : ""
-  const thinkingLabelRef = useRef({ key: "", label: "" })
-  if (thinkingPhaseKey && thinkingPhaseKey !== thinkingLabelRef.current.key) {
-    const pool = isCompressing ? LABELS_COMPRESSING
-      : isTranscribing ? LABELS_TRANSCRIBING
-      : isResearching ? LABELS_RESEARCHING
-      : (presentationMode && isStreaming) ? LABELS_STREAMING
-      : isTTSLoading ? LABELS_TTS
-      : LABELS_DEFAULT
-    thinkingLabelRef.current = { key: thinkingPhaseKey, label: pool[Math.floor(Math.random() * pool.length)] }
-  }
-  const thinkingLabel = thinkingLabelRef.current.label || "Thinking..."
-
-  const exchangeCount = messages.filter((m) => m.role === "user").length
-  const lastMessage = messages[messages.length - 1]
-  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && (lastMessage.content?.length ?? 0) > 0 && stage !== 'feedback'
-
-  // Place the research card after the first user message (the context message).
-  // This is stable from the moment chat starts — no jumping when Vera's response streams in.
-  const researchCardAnchorId = messages.find((m) => m.role === "user")?.id ?? null
-
-  const followUps = stage === 'define' ? FOLLOW_UPS_DEFINE
-    : chatMode ? FOLLOW_UPS_CHAT
-    : stage === 'present' ? FOLLOW_UPS_PRESENT
-    : stage === 'followup' ? FOLLOW_UPS_LATER
-    : exchangeCount <= 1 ? FOLLOW_UPS_EARLY
-    : FOLLOW_UPS_LATER
-
-  // Track the first feedback message ID for special visual treatment
-  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
-  const prevStageRef = useRef(stage)
-  useEffect(() => {
-    if (prevStageRef.current !== 'feedback' && stage === 'feedback') {
-      // The next assistant message will be the feedback
-      const lastMsg = messages[messages.length - 1]
-      if (lastMsg?.role === 'assistant') {
-        setFeedbackMessageId(lastMsg.id)
-      }
-    }
-    // When transitioning to feedback and streaming starts, catch the new message
-    if (stage === 'feedback' && !feedbackMessageId) {
-      const lastMsg = messages[messages.length - 1]
-      if (lastMsg?.role === 'assistant' && lastMsg.content === '') {
-        setFeedbackMessageId(lastMsg.id)
-      }
-    }
-    prevStageRef.current = stage
-  }, [stage, messages, feedbackMessageId])
-
-  // Save session to Firestore and navigate to the dedicated feedback page.
-  async function saveAndNavigateToFeedback() {
-    if (sessionSaveTriggered.current) return
-    sessionSaveTriggered.current = true
-    setNavigatingToFeedback(true)
-
-    if (!user) {
-      toast.error("You must be logged in to save a session")
-      sessionSaveTriggered.current = false
-      setNavigatingToFeedback(false)
-      return
-    }
-
-    const topic = chatSetupContext?.topic || setupTopic.trim() || "Untitled presentation"
-    const audience = chatSetupContext?.audience || setupAudience.trim() || "General audience"
-    const goal = chatSetupContext?.goal || setupGoal.trim() || "Deliver effectively"
-    const additionalContext = chatSetupContext?.additionalContext || setupAdditional.trim() || undefined
-
-    const setup = {
-      topic,
-      audience,
-      goal,
-      ...(additionalContext ? { additionalContext } : {}),
-    }
-
-    const strippedMessages = messages
-      .filter((m) => m.content?.trim())
-      .map((m) => ({ role: m.role, content: m.content }))
-
-    const slideReviewPayload = slideReview.deckSummary
-      ? {
-          raw: slideContext ?? formatSlideContextForChat(slideReview.deckSummary, slideReview.slideFeedbacks),
-          deckSummary: slideReview.deckSummary,
-          slideFeedbacks: slideReview.slideFeedbacks,
-          ...(slideReview.blobUrl ? { blobUrl: slideReview.blobUrl } : {}),
-          ...(slideReview.fileName ? { fileName: slideReview.fileName } : {}),
-        }
-      : slideContext ? { raw: slideContext } : null
-
-    // Persist the blob URL so pagehide cleanup won't delete it
-    if (slideReview.blobUrl) slideReview.markBlobPersisted(slideReview.blobUrl)
-
-    const sessionPayload = {
-      userId: user.uid,
-      setup,
-      transcript: transcript ?? null,
-      messages: strippedMessages,
-      audiencePulse: audiencePulseHistory,
-      slideReview: slideReviewPayload,
-      researchContext: researchContext ?? null,
-      scores: null as SessionScores | SessionScoresV2 | null,
-    }
-
-    let sessionId: string
-    try {
-      sessionId = await saveSession(sessionPayload)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error("[session-save] Firestore save failed:", err)
-      toast.error(`Failed to save session: ${msg}`)
-      sessionSaveTriggered.current = false
-      setNavigatingToFeedback(false)
-      return
-    }
-
-    // Navigate to feedback page
-    router.push(`/feedback/${sessionId}`)
-
-    // Fire scoring API in background
-    user.getIdToken().then((token) => {
-      fetch("/api/feedback-score", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          sessionId,
-          transcript: transcript ?? undefined,
-          setup,
-          messages: strippedMessages,
-          researchContext: researchContext ?? undefined,
-          slideContext: slideContext ?? undefined,
-        }),
-      })
-        .then(async (res) => {
-          if (res.ok) {
-            const { scores } = await res.json()
-            await updateSessionScores(sessionId, scores as SessionScoresV2)
-          }
-        })
-        .catch((err) => console.warn("[feedback-score] Scoring failed:", err))
-    })
-  }
-
-  // When feedback completes (stage → followup), save and navigate
-  useEffect(() => {
-    if (stage === "followup" && !sessionSaveTriggered.current) {
-      saveAndNavigateToFeedback()
-    }
-  }, [stage]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  /* ── Effects ── */
-  useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])
-
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages, isTranscribing, isStreaming])
-
-  useEffect(() => { if (freeLimitReached) setShowFreeLimitDialog(true) }, [freeLimitReached])
-
-  useEffect(() => {
-    if (error) { toast.error(error); clearError() }
-  }, [error, clearError])
-
-  useEffect(() => { if (slideReview.error) toast.error(slideReview.error) }, [slideReview.error])
-
-  // Fetch pulse labels after transcription completes in presentation mode
-  // so audience thoughts update while the AI is still "thinking"
-  const prevTranscribingRef = useRef(false)
-  useEffect(() => {
-    if (prevTranscribingRef.current && !isTranscribing && presentationMode) {
-      fetchPulseLabels()
-    }
-    prevTranscribingRef.current = isTranscribing
-  }, [isTranscribing, presentationMode])
-
-  // Transition setup phase: researching → review when research finishes
-  useEffect(() => {
-    if (setupPhase === "researching" && !isResearching) {
-      if (researchMeta) {
-        setSetupPhase("review")
-      } else {
-        toast("Audience research unavailable — proceeding without it")
-        setSetupPhase("mode-select")
-      }
-    }
-  }, [setupPhase, isResearching, researchMeta])
-
-  // Transition setup phase: uploading → done when processing finishes
-  useEffect(() => {
-    if (setupPhase === "uploading" && !isCompressing && !isTranscribing) {
-      setSetupPhase("fields")
-    }
-  }, [setupPhase, isCompressing, isTranscribing])
-
-  useEffect(() => {
-    if (slideReview.deckSummary && slideReview.slideFeedbacks.length > 0) {
-      setSlideContext(formatSlideContextForChat(slideReview.deckSummary, slideReview.slideFeedbacks))
-    }
-  }, [slideReview.deckSummary, slideReview.slideFeedbacks, setSlideContext])
-
-  useEffect(() => {
-    if (!presentationMode) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Enter") handleStartRecording()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [presentationMode])
-
-  useEffect(() => {
-    return () => { ttsAudioRef.current?.pause(); ttsAudioRef.current = null }
-  }, [])
-
-  /* ── TTS functions (ElevenLabs with forced alignment) ── */
+  /* ── TTS functions ── */
 
   const ttsSentencesRef = useRef<{ text: string; start: number; end: number }[]>([])
   const ttsAbortRef = useRef<AbortController | null>(null)
@@ -565,14 +176,13 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     stopSpeaking()
     setIsTTSLoading(true)
 
-    // Abort any in-flight TTS fetch so its .then won't clobber state
     ttsAbortRef.current?.abort()
     const controller = new AbortController()
     ttsAbortRef.current = controller
 
     fetch("/api/tts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAuthHeaders(),
       body: JSON.stringify({ text }),
       signal: controller.signal,
     })
@@ -581,13 +191,11 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
         return res.json()
       })
       .then(({ audio, sentences }: { audio: string; sentences: { text: string; start: number; end: number }[] }) => {
-        // If aborted between fetch resolve and here, bail out
         if (controller.signal.aborted) return
 
         ttsSentencesRef.current = sentences
         if (sentences.length > 0) setTtsCaption(sentences[0].text)
 
-        // Decode base64 audio → blob → Audio element
         const bytes = Uint8Array.from(atob(audio), c => c.charCodeAt(0))
         const blob = new Blob([bytes], { type: "audio/mpeg" })
         const url = URL.createObjectURL(blob)
@@ -599,7 +207,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
           setIsTTSSpeaking(true)
         }
         audioEl.ontimeupdate = () => {
-          // Show caption 0.3s ahead of speech
           const t = audioEl.currentTime + 0.3
           const hit = ttsSentencesRef.current.find(s => t >= s.start && t < s.end)
           if (hit) setTtsCaption(hit.text)
@@ -651,40 +258,259 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     ttsSentencesRef.current = []
   }
 
-  /* ── Handlers ── */
-  function handleSendOrTransition(text: string) {
-    // Intercept special stage transition tokens
-    if (text === "__START_PRESENT__") {
-      setPresentationMode(true)
+  /* ── Post-streaming effects ── */
+
+  useEffect(() => {
+    if (prevStreaming.current && !isStreaming) {
+      prevStreaming.current = false
+
+      let t: ReturnType<typeof setTimeout> | undefined
+      if (!presentationModeRef.current) {
+        setSatisfiedWindow(true)
+        t = setTimeout(() => setSatisfiedWindow(false), 2000)
+      }
+
+      fetchPulseLabels()
+
+      if (presentationModeRef.current) {
+        const lastAssistant = [...messagesRef.current].reverse().find(m => m.role === "assistant" && m.content)
+        if (lastAssistant?.content) speakText(lastAssistant.content)
+      }
+
+      return () => { if (t) clearTimeout(t) }
+    }
+    prevStreaming.current = isStreaming
+  }, [isStreaming, messages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cycle through pulse labels
+  useEffect(() => {
+    if (pulseLabels.length <= 1) return
+    const t = setInterval(() => setPulseIndex(i => (i + 1) % pulseLabels.length), 4000)
+    return () => clearInterval(t)
+  }, [pulseLabels])
+
+  /* ── Held processing state ── */
+
+  const isProcessingRaw = isCompressing || isTranscribing || isResearching || isTTSLoading || (presentationMode && isStreaming)
+  const [isProcessingHeld, setIsProcessingHeld] = useState(false)
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  useEffect(() => {
+    if (isProcessingRaw) {
+      clearTimeout(holdTimerRef.current)
+      setIsProcessingHeld(true)
+    } else {
+      holdTimerRef.current = setTimeout(() => setIsProcessingHeld(false), 500)
+    }
+    return () => clearTimeout(holdTimerRef.current)
+  }, [isProcessingRaw])
+
+  /* ── Derived state ── */
+
+  const isBusy = useMemo(() => isCompressing || isTranscribing || isResearching || isStreaming, [isCompressing, isTranscribing, isResearching, isStreaming])
+  const isInputDisabled = useMemo(() => isBusy || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording, [isBusy, freeLimitReached, slideReview.isAnalyzing, recorder.isRecording])
+  const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
+  const chatMode = stage === "present" && !presentationMode
+
+  const faceState: FaceState = recorder.isRecording ? "listening"
+    : isProcessingHeld ? "thinking"
+    : ((!presentationMode && isStreaming) || isTTSSpeaking) ? "speaking"
+    : satisfiedWindow ? "satisfied"
+    : "idle"
+
+  // Pick a label once per thinking phase, not per render
+  const thinkingPhaseKey = isCompressing ? "compress"
+    : isTranscribing ? "transcribe"
+    : isResearching ? "research"
+    : (presentationMode && isStreaming) ? "stream"
+    : isTTSLoading ? "tts"
+    : isProcessingHeld ? "default"
+    : ""
+  const thinkingLabelRef = useRef({ key: "", label: "" })
+  if (thinkingPhaseKey && thinkingPhaseKey !== thinkingLabelRef.current.key) {
+    const pool = isCompressing ? LABELS_COMPRESSING
+      : isTranscribing ? LABELS_TRANSCRIBING
+      : isResearching ? LABELS_RESEARCHING
+      : (presentationMode && isStreaming) ? LABELS_STREAMING
+      : isTTSLoading ? LABELS_TTS
+      : LABELS_DEFAULT
+    thinkingLabelRef.current = { key: thinkingPhaseKey, label: pool[Math.floor(Math.random() * pool.length)] }
+  }
+  const thinkingLabel = thinkingLabelRef.current.label || "Thinking..."
+
+  const exchangeCount = messages.filter((m) => m.role === "user").length
+  const lastMessage = messages[messages.length - 1]
+  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && (lastMessage.content?.length ?? 0) > 0 && stage !== 'feedback'
+
+  const researchCardAnchorId = messages.find((m) => m.role === "user")?.id ?? null
+
+  const followUps = useMemo(() =>
+    stage === 'define' ? FOLLOW_UPS_DEFINE
+    : chatMode ? FOLLOW_UPS_CHAT
+    : stage === 'present' ? FOLLOW_UPS_PRESENT
+    : stage === 'followup' ? FOLLOW_UPS_LATER
+    : exchangeCount <= 1 ? FOLLOW_UPS_EARLY
+    : FOLLOW_UPS_LATER
+  , [stage, chatMode, exchangeCount])
+
+  // Track the first feedback message ID for special visual treatment
+  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
+  const prevStageRef = useRef(stage)
+  useEffect(() => {
+    if (prevStageRef.current !== 'feedback' && stage === 'feedback') {
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.role === 'assistant') setFeedbackMessageId(lastMsg.id)
+    }
+    if (stage === 'feedback' && !feedbackMessageId) {
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.role === 'assistant' && lastMsg.content === '') setFeedbackMessageId(lastMsg.id)
+    }
+    prevStageRef.current = stage
+  }, [stage, messages, feedbackMessageId])
+
+  // Audience pulse label + emotion for presentation overlay
+  const currentPulse = pulseLabels[pulseIndex] ?? null
+  const currentEmotion: FaceEmotion = currentPulse?.emotion ?? "neutral"
+  const audienceLabel = presentationMode
+    ? (currentPulse?.text ?? null)
+    : (currentPulse?.text
+      ?? researchMeta?.audienceSummary
+      ?? (slideReview.deckSummary?.audienceAssumed ? `Presenting to ${slideReview.deckSummary.audienceAssumed}` : null)
+      ?? "In the room with you")
+
+  /* ── Session save ── */
+
+  async function saveAndNavigateToFeedback() {
+    if (sessionSaveTriggered.current) return
+    sessionSaveTriggered.current = true
+    setNavigatingToFeedback(true)
+
+    if (!user) {
+      toast.error("You must be logged in to save a session")
+      sessionSaveTriggered.current = false
+      setNavigatingToFeedback(false)
       return
     }
-    if (text === "__START_UPLOAD_RECORDING__") {
-      fileInputRef.current?.click()
+
+    const savedCtx = savedSetupRef.current.context
+    const topic = chatSetupContext?.topic || savedCtx?.topic || "Untitled presentation"
+    const audience = chatSetupContext?.audience || savedCtx?.audience || "General audience"
+    const goal = chatSetupContext?.goal || savedCtx?.goal || "Deliver effectively"
+    const additionalContext = chatSetupContext?.additionalContext || savedCtx?.additionalContext || undefined
+
+    const setup = {
+      topic,
+      audience,
+      goal,
+      ...(additionalContext ? { additionalContext } : {}),
+    }
+
+    const strippedMessages = messages
+      .filter((m) => m.content?.trim())
+      .map((m) => ({ role: m.role, content: m.content }))
+
+    const slideReviewPayload = slideReview.deckSummary
+      ? {
+          raw: slideContext ?? formatSlideContextForChat(slideReview.deckSummary, slideReview.slideFeedbacks),
+          deckSummary: slideReview.deckSummary,
+          slideFeedbacks: slideReview.slideFeedbacks,
+          ...(slideReview.blobUrl ? { blobUrl: slideReview.blobUrl } : {}),
+          ...(slideReview.fileName ? { fileName: slideReview.fileName } : {}),
+        }
+      : slideContext ? { raw: slideContext } : null
+
+    if (slideReview.blobUrl) slideReview.markBlobPersisted(slideReview.blobUrl)
+
+    const sessionPayload = {
+      userId: user.uid,
+      setup,
+      transcript: transcript ?? null,
+      messages: strippedMessages,
+      audiencePulse: audiencePulseHistory,
+      slideReview: slideReviewPayload,
+      researchContext: researchContext ?? null,
+      scores: null as SessionScores | SessionScoresV2 | null,
+    }
+
+    let sessionId: string
+    try {
+      sessionId = await saveSession(sessionPayload)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[session-save] Firestore save failed:", err)
+      toast.error(`Failed to save session: ${msg}`)
+      sessionSaveTriggered.current = false
+      setNavigatingToFeedback(false)
       return
     }
-    if (text === "__START_UPLOAD_SLIDES__") {
-      pdfInputRef.current?.click()
-      return
-    }
-    if (text === "__FINISH_PRESENTING__") {
-      stopSpeaking()
-      setPresentationMode(false)
-      finishPresentation()
-      return
-    }
-    if (text === "__UPLOAD_ANOTHER__") {
-      fileInputRef.current?.click()
-      return
-    }
-    sendMessage(text)
+
+    router.push(`/feedback/${sessionId}`)
+
+    user.getIdToken().then((token) => {
+      fetch("/api/feedback-score", {
+        method: "POST",
+        headers: buildAuthHeaders(token),
+        body: JSON.stringify({
+          sessionId,
+          transcript: transcript ?? undefined,
+          setup,
+          messages: strippedMessages,
+          researchContext: researchContext ?? undefined,
+          slideContext: slideContext ?? undefined,
+        }),
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const { scores } = await res.json()
+            await updateSessionScores(sessionId, scores as SessionScoresV2)
+          }
+        })
+        .catch((err) => console.warn("[feedback-score] Scoring failed:", err))
+    })
   }
 
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    const trimmed = input.trim()
-    if (!trimmed || isInputDisabled) return
-    setInput("")
-    handleSendOrTransition(trimmed)
+  // When feedback completes (stage → followup), save and navigate
+  useEffect(() => {
+    if (stage === "followup" && !sessionSaveTriggered.current) {
+      saveAndNavigateToFeedback()
+    }
+  }, [stage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Effects ── */
+
+  useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])
+  useEffect(() => { if (freeLimitReached) setShowFreeLimitDialog(true) }, [freeLimitReached])
+  useEffect(() => { if (error) { toast.error(error); clearError() } }, [error, clearError])
+  useEffect(() => { if (slideReview.error) toast.error(slideReview.error) }, [slideReview.error])
+
+  // Fetch pulse labels after transcription completes in presentation mode
+  const prevTranscribingRef = useRef(false)
+  useEffect(() => {
+    if (prevTranscribingRef.current && !isTranscribing && presentationMode) {
+      fetchPulseLabels()
+    }
+    prevTranscribingRef.current = isTranscribing
+  }, [isTranscribing, presentationMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (slideReview.deckSummary && slideReview.slideFeedbacks.length > 0) {
+      setSlideContext(formatSlideContextForChat(slideReview.deckSummary, slideReview.slideFeedbacks))
+    }
+  }, [slideReview.deckSummary, slideReview.slideFeedbacks, setSlideContext])
+
+  useEffect(() => {
+    return () => { ttsAudioRef.current?.pause(); ttsAudioRef.current = null }
+  }, [])
+
+  /* ── Handlers ── */
+
+  function handleSendOrTransition(text: string) {
+    if (text === "__START_PRESENT__") { setPresentationMode(true); return }
+    if (text === "__START_UPLOAD_RECORDING__") { fileInputRef.current?.click(); return }
+    if (text === "__START_UPLOAD_SLIDES__") { pdfInputRef.current?.click(); return }
+    if (text === "__FINISH_PRESENTING__") { stopSpeaking(); setPresentationMode(false); finishPresentation(); return }
+    if (text === "__UPLOAD_ANOTHER__") { fileInputRef.current?.click(); return }
+    sendMessage(text)
   }
 
   function handlePdfAnalysis(file: File) {
@@ -697,10 +523,9 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     const file = e.target.files?.[0]
     if (!file) { pendingUploadRef.current = false; return }
 
-    // Coming from upload-recording flow — go straight to feedback after transcription
     if (pendingUploadRef.current) {
       pendingUploadRef.current = false
-      const context = buildContextMessage()
+      const context = savedSetupRef.current.message
       if (context) addMessage(context)
       setNavigatingToFeedback(true)
     }
@@ -718,14 +543,18 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     if (pdfInputRef.current) pdfInputRef.current.value = ""
   }
 
-  const continueRef = useRef<HTMLButtonElement>(null)
+  function commitPresentation() {
+    if (presentationCommittedRef.current) return
+    presentationCommittedRef.current = true
+    const setupCtx = savedSetupRef.current.context
+    const contextMsg = savedSetupRef.current.message
+    if (setupCtx) startPresentation(setupCtx)
+    if (contextMsg) addMessage(contextMsg)
+  }
 
   async function handleStartRecording() {
     if (isBusy || recorder.isRecording) return
-    // Commit presentation state on first recording
     commitPresentation()
-    // Hide button instantly via DOM — no waiting for React render cycle
-    if (continueRef.current) continueRef.current.style.visibility = "hidden"
     const err = await recorder.startRecording()
     if (err) {
       const msgs: Record<string, string> = {
@@ -741,242 +570,56 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   async function handleStopRecording() {
     const file = await recorder.stopRecording()
     if (file) {
-      // Bridge the gap between recording stop and upload start
-      // so faceState doesn't briefly flicker to "idle"
       setIsProcessingHeld(true)
       clearTimeout(holdTimerRef.current)
       uploadFile(file)
     }
   }
 
-  function buildSetupContext(): SetupContext | null {
-    const topic = setupTopic.trim()
-    const audience = setupAudience.trim()
-    const goal = setupGoal.trim()
-    const additionalContext = setupAdditional.trim()
-    if (!topic && !audience && !goal && !additionalContext) return null
-    return {
-      ...(topic ? { topic } : {}),
-      ...(audience ? { audience } : {}),
-      ...(goal ? { goal } : {}),
-      ...(additionalContext ? { additionalContext } : {}),
-    }
-  }
+  function handleModeSelectFromWizard(
+    mode: "present" | "upload-recording" | "just-chat",
+    setupCtx: SetupContext | null,
+    contextMsg: string | null
+  ) {
+    savedSetupRef.current = { context: setupCtx, message: contextMsg }
 
-  function buildContextMessage(): string | null {
-    const parts: string[] = []
-    if (setupTopic.trim()) parts.push(`I'm presenting on: ${setupTopic.trim()}`)
-    if (setupAudience.trim()) parts.push(`My audience is: ${setupAudience.trim()}`)
-    if (setupGoal.trim()) parts.push(`My goal is to: ${setupGoal.trim()}`)
-    if (setupAdditional.trim()) parts.push(`Additional context: ${setupAdditional.trim()}`)
-    return parts.length > 0 ? parts.join(". ") + "." : null
-  }
-
-  function handleSetupSubmit() {
-    if (!hasSetupContent) return
-    const setupCtx = buildSetupContext()
-    if (!setupCtx) return
-
-    const audience = setupAudience.trim()
-    if (audience) {
-      // Has audience — research first, then review
-      setSetupPhase("researching")
-      startResearchEarly(audience, {
-        topic: setupTopic.trim() || undefined,
-        goal: setupGoal.trim() || undefined,
-        additionalContext: setupAdditional.trim() || undefined,
-      })
-    } else {
-      // No audience — skip straight to mode selection
-      setSetupPhase("mode-select")
-    }
-  }
-
-  function commitPresentation() {
-    if (presentationCommittedRef.current) return
-    presentationCommittedRef.current = true
-    const context = buildContextMessage()
-    const setupCtx = buildSetupContext()
-    if (setupCtx) startPresentation(setupCtx)
-    if (context) addMessage(context)
-  }
-
-  function handleModeSelect(mode: "present" | "upload-recording" | "just-chat") {
     if (mode === "present") {
-      // Defer startPresentation/addMessage until the user actually records
       presentationCommittedRef.current = false
       setPresentationMode(true)
-      // Fetch first-person audience thoughts based on setup context
-      const ctx = buildContextMessage()
-      if (ctx) fetchPulseLabels([{ role: "user", content: `I'm about to present to you. ${ctx}` }])
+      if (contextMsg) fetchPulseLabels([{ role: "user", content: `I'm about to present to you. ${contextMsg}` }])
       return
     }
 
     if (mode === "upload-recording") {
-      // Defer commitment until file is actually selected
       pendingUploadRef.current = true
       recordingInputRef.current?.click()
       return
     }
 
-    const context = buildContextMessage()
-    const setupCtx = buildSetupContext()
+    // just-chat
     if (setupCtx) startPresentation(setupCtx)
-    sendMessage(context ?? "Hey, I'm getting ready for a presentation.")
+    sendMessage(contextMsg ?? "Hey, I'm getting ready for a presentation.")
   }
 
-  function handlePresentationSlideUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (presentationPdfInputRef.current) presentationPdfInputRef.current.value = ""
-
-    const validation = validateSlideFile({ name: file.name, type: file.type, size: file.size })
-    if (!validation.valid) {
-      toast.error(validation.error)
-      return
-    }
-
+  function handlePresentationSlideUpload(file: File) {
+    const ctx = savedSetupRef.current.context
     const parts: string[] = []
-    if (setupTopic.trim()) parts.push(setupTopic.trim())
-    if (setupAudience.trim()) parts.push(`Audience: ${setupAudience.trim()}`)
-    if (setupGoal.trim()) parts.push(`Goal: ${setupGoal.trim()}`)
+    if (ctx?.topic) parts.push(ctx.topic)
+    if (ctx?.audience) parts.push(`Audience: ${ctx.audience}`)
+    if (ctx?.goal) parts.push(`Goal: ${ctx.goal}`)
     const audienceContext = parts.length > 0 ? parts.join(". ") : undefined
-
     slideReview.uploadAndAnalyze(file, audienceContext)
   }
 
-  const hasSetupContent = !!(setupTopic.trim() && setupAudience.trim() && setupGoal.trim())
-
-  function handleSetupKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && hasSetupContent) {
-      e.preventDefault()
-      handleSetupSubmit()
-    }
+  function handlePresentationFinish() {
+    stopSpeaking()
+    setNavigatingToFeedback(true)
+    setPresentationMode(false)
+    finishPresentation()
   }
-
-  // Enter to proceed from research review phase
-  useEffect(() => {
-    if (setupPhase !== "review" || !researchMeta) return
-
-    // Wait for keyup so we don't catch the Enter that triggered the research
-    let armed = false
-    function handleKeyUp(e: KeyboardEvent) {
-      if (e.key === "Enter") armed = true
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Enter" && armed) {
-        e.preventDefault()
-        setSetupPhase("mode-select")
-      }
-    }
-
-    window.addEventListener("keyup", handleKeyUp)
-    window.addEventListener("keydown", handleKeyDown)
-    return () => {
-      window.removeEventListener("keyup", handleKeyUp)
-      window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [setupPhase, researchMeta])
-
-  // Enter to default to "present live" on mode-select phase
-  useEffect(() => {
-    if (setupPhase !== "mode-select") return
-
-    let armed = false
-    function handleKeyUp(e: KeyboardEvent) {
-      if (e.key === "Enter") armed = true
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Enter" && armed) {
-        e.preventDefault()
-        handleModeSelect("present")
-      }
-    }
-
-    window.addEventListener("keyup", handleKeyUp)
-    window.addEventListener("keydown", handleKeyDown)
-    return () => {
-      window.removeEventListener("keyup", handleKeyUp)
-      window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [setupPhase])
-
-  /* ── Shared recording overlay (used in both input bars) ── */
-  const recordingContent = (
-    <div className="flex w-full items-center gap-2 px-3">
-      <div className="relative flex-shrink-0">
-        <div className="h-2 w-2 rounded-full bg-red-500" />
-        <div className="absolute inset-0 animate-ping rounded-full bg-red-500/60" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <AudioWaveform analyser={recorder.analyserNode} />
-      </div>
-      <span className="flex-shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-        {formatElapsed(recorder.elapsed)}
-      </span>
-      <button type="button" onClick={recorder.cancelRecording}
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-        aria-label="Cancel recording">
-        <X className="h-3.5 w-3.5" />
-      </button>
-      <button type="button" onClick={handleStopRecording}
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-red-500 text-white transition-colors hover:bg-red-600"
-        aria-label="Stop recording and send">
-        <Square className="h-3 w-3 fill-current" />
-      </button>
-    </div>
-  )
-
-  /* ── User message bubble (active chat) ── */
-  function UserBubble({ msg }: { msg: (typeof messages)[number] }) {
-    const isPdfAttachment = !!msg.attachment && (msg.attachment.type === "application/pdf" || msg.attachment.name.toLowerCase().endsWith(".pdf"))
-    const hasReview = isPdfAttachment && !!slideReview.reviews[msg.id]
-    const isActiveAnalysis = isPdfAttachment && slideReview.activeReviewKey === msg.id && slideReview.isAnalyzing
-    const isCurrentlyShown = slideReview.displayedKey === msg.id && slideReview.panelOpen
-
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%]">
-          {msg.attachment && (
-            <div className="mb-2 flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
-              {msg.attachment.type.startsWith("video") ? <FileVideo className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                : isPdfAttachment ? <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                : <FileAudio className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{msg.attachment.name}</p>
-                <p className="text-xs text-muted-foreground">{formatFileSize(msg.attachment.size)}</p>
-              </div>
-              {(hasReview || isActiveAnalysis) && !isCurrentlyShown && (
-                <button type="button"
-                  onClick={() => slideReview.reviews[msg.id] ? slideReview.openReview(msg.id) : slideReview.openPanel()}
-                  className="ml-1 flex-shrink-0 rounded bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20">
-                  {isActiveAnalysis ? "View progress" : "View review"}
-                </button>
-              )}
-            </div>
-          )}
-          {msg.content && !msg.content.startsWith("[Presentation transcript]") && (
-            <div className="rounded-xl bg-muted px-4 py-2.5">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{msg.content}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  /* ── Audience pulse label + emotion (used in presentation overlay) ── */
-  const currentPulse = pulseLabels[pulseIndex] ?? null
-  const currentEmotion: FaceEmotion = currentPulse?.emotion ?? "neutral"
-  // In presentation mode, only show pulse labels (first-person thoughts) — never the research summary
-  const audienceLabel = presentationMode
-    ? (currentPulse?.text ?? null)
-    : (currentPulse?.text
-      ?? researchMeta?.audienceSummary
-      ?? (slideReview.deckSummary?.audienceAssumed ? `Presenting to ${slideReview.deckSummary.audienceAssumed}` : null)
-      ?? "In the room with you")
 
   /* ── Render ── */
+
   return (
     <div className="relative flex flex-1 overflow-hidden bg-background">
       <div
@@ -985,490 +628,41 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       >
         <AnimatePresence mode="wait">
           {isEmptyState ? (
-
-            /* ════════════════════════════════════════════════
-               EMPTY STATE — structured setup fields
-            ════════════════════════════════════════════════ */
-            <motion.div
-              key="empty-state"
-              initial={{ opacity: 1 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto overflow-x-hidden px-6 py-8"
-            >
-              {/* Ambient glow */}
-              <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
-                <div className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full opacity-[0.08] blur-3xl">
-                  <div className="h-full w-full rounded-full" style={{ background: "radial-gradient(circle, hsl(36 56% 48% / 0.6), transparent 70%)" }} />
-                </div>
-                <div className="absolute -right-32 top-1/3 h-[400px] w-[400px] rounded-full opacity-[0.06] blur-3xl">
-                  <div className="h-full w-full rounded-full" style={{ background: "radial-gradient(circle, hsl(34 35% 74%), transparent 70%)" }} />
-                </div>
-              </div>
-
-              <div className="flex w-full max-w-2xl flex-col items-center overflow-hidden">
-                <AnimatePresence mode="wait">
-                  {setupPhase === "fields" && (
-                    <motion.div
-                      key="setup-fields"
-                      initial={{ opacity: 1 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                      className="flex w-full flex-col items-center"
-                    >
-                      <FadeIn delay={0.1}>
-                        <div className="mt-2 flex w-full flex-col items-center gap-6 font-display text-center text-lg text-muted-foreground sm:text-xl md:text-2xl">
-                          {/* Topic */}
-                          <div className="flex flex-col items-center">
-                            <span>I&apos;m presenting</span>
-                            <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
-                              <span ref={topicSizerRef} className="invisible whitespace-nowrap px-1">{setupTopic ? setupTopic : SETUP_EXAMPLES[sizerIndex].topic}</span>
-                              <input
-                                type="text"
-                                value={setupTopic}
-                                onChange={(e) => setSetupTopic(e.target.value)}
-                                onKeyDown={handleSetupKeyDown}
-                                className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
-                              />
-                              {!setupTopic && (
-                                <AnimatePresence mode="wait">
-                                  <motion.span
-                                    key={SETUP_EXAMPLES[exampleIndex].topic}
-                                    initial={{ opacity: 0, y: 6 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                                    className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
-                                  >
-                                    {SETUP_EXAMPLES[exampleIndex].topic}
-                                  </motion.span>
-                                </AnimatePresence>
-                              )}
-                              <motion.span
-                                className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                                initial={false}
-                                animate={{ width: blankWidths.topic + 20 }}
-                                transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
-                              />
-                            </span>
-                          </div>
-
-                          {/* Audience */}
-                          <div className="flex flex-col items-center">
-                            <span>to</span>
-                            <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
-                              <span ref={audienceSizerRef} className="invisible whitespace-nowrap px-1">{setupAudience ? setupAudience : SETUP_EXAMPLES[sizerIndex].audience}</span>
-                              <input
-                                type="text"
-                                value={setupAudience}
-                                onChange={(e) => setSetupAudience(e.target.value)}
-                                onKeyDown={handleSetupKeyDown}
-                                className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
-                              />
-                              {!setupAudience && (
-                                <AnimatePresence mode="wait">
-                                  <motion.span
-                                    key={SETUP_EXAMPLES[exampleIndex].audience}
-                                    initial={{ opacity: 0, y: 6 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                                    className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
-                                  >
-                                    {SETUP_EXAMPLES[exampleIndex].audience}
-                                  </motion.span>
-                                </AnimatePresence>
-                              )}
-                              <motion.span
-                                className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                                initial={false}
-                                animate={{ width: blankWidths.audience + 20 }}
-                                transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
-                              />
-                            </span>
-                          </div>
-
-                          {/* Goal */}
-                          <div className="flex flex-col items-center">
-                            <span>and I want to</span>
-                            <span className="relative mt-1 inline-block pb-1" style={{ minWidth: 60 }}>
-                              <span ref={goalSizerRef} className="invisible whitespace-nowrap px-1">{setupGoal ? setupGoal : SETUP_EXAMPLES[sizerIndex].goal}</span>
-                              <input
-                                type="text"
-                                value={setupGoal}
-                                onChange={(e) => setSetupGoal(e.target.value)}
-                                onKeyDown={handleSetupKeyDown}
-                                className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none"
-                              />
-                              {!setupGoal && (
-                                <AnimatePresence mode="wait">
-                                  <motion.span
-                                    key={SETUP_EXAMPLES[exampleIndex].goal}
-                                    initial={{ opacity: 0, y: 6 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                                    className="pointer-events-none absolute inset-x-0 top-0 whitespace-nowrap text-center text-muted-foreground/30"
-                                  >
-                                    {SETUP_EXAMPLES[exampleIndex].goal}
-                                  </motion.span>
-                                </AnimatePresence>
-                              )}
-                              <motion.span
-                                className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                                initial={false}
-                                animate={{ width: blankWidths.goal + 20 }}
-                                transition={hasMeasuredRef.current ? { duration: 0.35, ease: "easeInOut" } : { duration: 0 }}
-                              />
-                            </span>
-                          </div>
-                        </div>
-                      </FadeIn>
-
-                      {/* Optional additional context */}
-                      <FadeIn delay={0.15}>
-                        <div className="mt-6 flex justify-center">
-                          <AnimatePresence mode="wait">
-                            {!showAdditional ? (
-                              <motion.button
-                                key="add-btn"
-                                type="button"
-                                onClick={() => setShowAdditional(true)}
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -4 }}
-                                transition={{ duration: 0.2, ease: "easeInOut" }}
-                                className="font-display text-xs text-muted-foreground/50 transition-colors duration-300 hover:text-muted-foreground"
-                              >
-                                + Add more context
-                              </motion.button>
-                            ) : (
-                              <motion.div
-                                key="add-input"
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -4 }}
-                                transition={{ duration: 0.2, ease: "easeInOut" }}
-                                className="font-display text-center text-lg text-muted-foreground sm:text-xl md:text-2xl"
-                              >
-                                <span className="relative inline-block pb-1" style={{ minWidth: 200 }}>
-                                  <span className="invisible whitespace-pre px-1">
-                                    {setupAdditional || "Anything else Vera should know"}
-                                  </span>
-                                  <input
-                                    autoFocus
-                                    type="text"
-                                    value={setupAdditional}
-                                    onChange={(e) => setSetupAdditional(e.target.value)}
-                                    onKeyDown={handleSetupKeyDown}
-                                    onBlur={() => { if (!setupAdditional.trim()) setShowAdditional(false) }}
-                                    placeholder="Anything else Vera should know"
-                                    className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none placeholder:text-muted-foreground/30"
-                                  />
-                                  <motion.span
-                                    className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                                    animate={{ width: "calc(100% + 20px)" }}
-                                    transition={{ duration: 0.35, ease: "easeInOut" }}
-                                  />
-                                </span>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </FadeIn>
-
-                      {/* Ready button — fixed height so it doesn't shift layout */}
-                      <FadeIn delay={0.2}>
-                        <div className="mt-8 flex h-11 items-center justify-center">
-                          <button
-                            type="button"
-                            onClick={handleSetupSubmit}
-                            disabled={!hasSetupContent}
-                            className={`flex items-center gap-2 rounded-full border px-6 py-2.5 text-sm font-medium transition-all duration-300 ease-out active:scale-[0.98] ${
-                              hasSetupContent
-                                ? "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10 hover:border-primary/40"
-                                : "pointer-events-none border-transparent bg-transparent text-transparent opacity-0"
-                            }`}
-                          >
-                            <ArrowRight className="h-3.5 w-3.5 text-primary/70" />
-                            Ready
-                          </button>
-                        </div>
-                      </FadeIn>
-
-                    </motion.div>
-                  )}
-
-                  {setupPhase === "researching" && (
-                    <motion.div
-                      key="setup-researching"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                      className="flex w-full flex-col items-center gap-6 py-8"
-                    >
-                      <div className="flex flex-col items-center gap-4">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
-                        <div className="text-center">
-                          <p className="font-display text-lg text-foreground/80">Researching your audience</p>
-                          <div className="mt-2 h-5 flex items-center justify-center">
-                            <AnimatePresence mode="wait">
-                              <motion.p
-                                key={researchSnippet ?? "generating"}
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -4 }}
-                                transition={{ duration: 0.3, ease: "easeInOut" }}
-                                className="max-w-sm truncate text-sm italic text-muted-foreground/50"
-                              >
-                                {researchSnippet
-                                  ? `Searching "${researchSnippet}"`
-                                  : "Figuring out what to look up..."}
-                              </motion.p>
-                            </AnimatePresence>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {setupPhase === "review" && researchMeta && (
-                    <motion.div
-                      key="setup-review"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                      className="flex w-full flex-col items-center gap-6 py-4"
-                    >
-                      <div className="text-center">
-                        <p className="font-display text-lg text-foreground/80">Here&apos;s what I found</p>
-                        <p className="mt-1 text-sm text-muted-foreground/60">Review the research before we continue</p>
-                      </div>
-
-                      <div className="w-full max-w-lg">
-                        <ResearchCard meta={researchMeta} />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setSetupPhase("mode-select")}
-                        className="flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-6 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-primary/10 hover:border-primary/40 active:scale-[0.98]"
-                      >
-                        <ArrowRight className="h-3.5 w-3.5 text-primary/70" />
-                        Looks good
-                      </button>
-                    </motion.div>
-                  )}
-
-                  {setupPhase === "mode-select" && (
-                    <motion.div
-                      key="setup-mode-select"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                      className="flex w-full flex-col items-center gap-6 py-8"
-                    >
-                      <div className="text-center">
-                        <p className="font-display text-lg text-foreground/80">How do you want to present?</p>
-                        <p className="mt-1 text-sm text-muted-foreground/60">Choose how you&apos;d like to deliver your presentation</p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleModeSelect("present")}
-                        className="group flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-6 py-3 text-sm font-medium text-foreground transition-all hover:bg-primary/10 hover:border-primary/40 active:scale-[0.98]"
-                      >
-                        <Mic className="h-4 w-4 text-primary/70" />
-                        Present live
-                      </button>
-
-                      <div className="flex items-center gap-3 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => handleModeSelect("upload-recording")}
-                          className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-                        >
-                          <Upload className="h-3 w-3" />
-                          Upload
-                        </button>
-                        <span className="text-[11px] text-muted-foreground/30">or</span>
-                        <button
-                          type="button"
-                          onClick={() => handleModeSelect("just-chat")}
-                          className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-                        >
-                          <Send className="h-3 w-3" />
-                          Chat
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {setupPhase === "uploading" && (
-                    <motion.div
-                      key="setup-uploading"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                      className="flex w-full flex-col items-center gap-6 py-8"
-                    >
-                      <div className="flex flex-col items-center gap-4">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
-                        <div className="text-center">
-                          <p className="font-display text-lg text-foreground/80">Processing your recording</p>
-                          <p className="mt-1 text-sm text-muted-foreground/60">
-                            {isCompressing
-                              ? "Compressing audio..."
-                              : isTranscribing
-                              ? "Transcribing your recording..."
-                              : "Wrapping up..."}
-                          </p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-
+            <SetupWizard
+              isResearching={isResearching}
+              researchMeta={researchMeta}
+              researchSearchTerms={researchSearchTerms}
+              isCompressing={isCompressing}
+              isTranscribing={isTranscribing}
+              onResearchStart={startResearchEarly}
+              onModeSelect={handleModeSelectFromWizard}
+            />
           ) : (
-
-            /* ════════════════════════════════════════════════
-               ACTIVE CHAT — face + feed + toolbar
-            ════════════════════════════════════════════════ */
-            <motion.div
-              key="active-chat"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="flex flex-1 flex-col overflow-hidden"
-            >
-              {/* Scrollable feed */}
-              <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-                <div className="mx-auto flex max-w-2xl flex-col gap-6">
-                  {/* Stage indicator */}
-                  <StageIndicator stage={stage} />
-
-                  {messages.map((msg) => {
-                    if (msg.role === "assistant" && !msg.content) return null
-                    const isFeedbackMessage = msg.id === feedbackMessageId
-                    const showResearchAfter = researchMeta && !isResearching && msg.id === researchCardAnchorId
-                    return (
-                      <React.Fragment key={msg.id}>
-                        <div>
-                          {msg.role === "assistant" ? (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-                              <div className={isFeedbackMessage ? "rounded-xl border border-primary/10 bg-primary/[0.02] p-5" : ""}>
-                                <div className="prose prose-sm max-w-none text-[0.9375rem] leading-[1.7] text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:text-base [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-foreground/70 [&_strong]:text-foreground [&_blockquote]:border-primary/20 [&_blockquote]:text-foreground/70 [&_li]:marker:text-primary/40">
-                                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                                </div>
-                              </div>
-                            </motion.div>
-                          ) : (
-                            <UserBubble msg={msg} />
-                          )}
-                        </div>
-                        {showResearchAfter && <ResearchCard meta={researchMeta} />}
-                      </React.Fragment>
-                    )
-                  })}
-
-                  {isCompressing && (
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm text-muted-foreground">Compressing audio</span>
-                    </div>
-                  )}
-                  {isTranscribing && !isCompressing && (
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm text-muted-foreground">Transcribing your recording</span>
-                    </div>
-                  )}
-                  {isResearching && (
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm text-muted-foreground">Researching your audience</span>
-                    </div>
-                  )}
-                  {isStreaming && !chatMode && messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === "" && (
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm text-muted-foreground">Analyzing your presentation</span>
-                    </div>
-                  )}
-
-                  {showFollowUps && (
-                    <div className="pt-2">
-                      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">Continue with</p>
-                      <div className="flex flex-wrap gap-2">
-                        {followUps.map((f) => (
-                          <button key={f.label} type="button"
-                            onClick={() => { setInput(""); handleSendOrTransition(f.message) }}
-                            disabled={isInputDisabled}
-                            className="group flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-sm text-foreground/80 transition-all hover:border-primary/30 hover:bg-accent hover:text-foreground active:scale-[0.98] disabled:opacity-50">
-                            {f.label}
-                            <ArrowRight className="h-3 w-3 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-primary" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Bottom input bar */}
-              <div className="flex-shrink-0 px-4 pb-4 pt-2 sm:px-6">
-                <form onSubmit={handleSubmit} className="mx-auto max-w-2xl">
-                  <div className={`relative flex h-12 sm:h-14 items-center overflow-hidden rounded-2xl border bg-muted transition-colors ${
-                    recorder.isRecording ? "border-red-500/40" : "border-border focus-within:border-primary/30 focus-within:ring-1 focus-within:ring-primary/20"
-                  }`}>
-                    {recorder.isRecording ? recordingContent : (
-                      <>
-                        <button type="button" onClick={() => (chatMode ? pdfInputRef : fileInputRef).current?.click()}
-                          disabled={isBusy || freeLimitReached || slideReview.isAnalyzing}
-                          className="absolute left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                          aria-label="Attach a file">
-                          <Paperclip className="h-4 w-4" />
-                        </button>
-                        <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(e) } }}
-                          placeholder="Describe your audience or ask for feedback..."
-                          disabled={isInputDisabled}
-                          className="h-full w-full bg-transparent pl-12 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
-                        />
-                        <button type="button" onClick={handleStartRecording}
-                          disabled={isBusy || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
-                          className="absolute right-11 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-                          aria-label="Start recording">
-                          <Mic className="h-4 w-4" />
-                        </button>
-                        {input.trim() || chatMode ? (
-                          <button type="submit" disabled={isInputDisabled || !input.trim()}
-                            className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
-                            aria-label="Send message">
-                            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                          </button>
-                        ) : (
-                          <button type="button"
-                            onClick={() => setPresentationMode(true)}
-                            disabled={isBusy || freeLimitReached}
-                            className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
-                            aria-label="Enter presentation mode">
-                            <Smile className="h-4 w-4" />
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </form>
-              </div>
-
-            </motion.div>
+            <ChatView
+              messages={messages}
+              stage={stage}
+              chatMode={chatMode}
+              feedbackMessageId={feedbackMessageId}
+              researchCardAnchorId={researchCardAnchorId}
+              researchMeta={researchMeta}
+              isResearching={isResearching}
+              isCompressing={isCompressing}
+              isTranscribing={isTranscribing}
+              isStreaming={isStreaming}
+              isBusy={isBusy}
+              isInputDisabled={isInputDisabled}
+              showFollowUps={showFollowUps}
+              followUps={followUps}
+              freeLimitReached={freeLimitReached}
+              recorder={recorder}
+              slideReview={slideReview}
+              onSend={handleSendOrTransition}
+              onStartRecording={handleStartRecording}
+              onStopRecording={handleStopRecording}
+              onFileClick={() => (chatMode ? pdfInputRef : fileInputRef).current?.click()}
+              onPdfClick={() => pdfInputRef.current?.click()}
+              onPresentationModeEnter={() => setPresentationMode(true)}
+            />
           )}
         </AnimatePresence>
       </div>
@@ -1476,169 +670,23 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       {/* Presentation overlay */}
       <AnimatePresence>
         {presentationMode && (
-          <motion.div
-            key="presentation-overlay"
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            {(() => {
-              const hasPresentationSlides = Object.keys(slideReview.thumbnails).length > 0
-              const faceSize = hasPresentationSlides ? 220 : 280
-
-              const faceColumn = (
-                <div className="flex flex-1 flex-col items-center justify-center">
-                  {/* Face */}
-                  <AudienceFace state={faceState} analyserNode={recorder.analyserNode} size={faceSize} emotion={currentEmotion} />
-
-                  {/* Caption area */}
-                  <div className="mt-4 flex h-12 items-center justify-center px-6">
-                    <AnimatePresence mode="wait">
-                      {isTTSSpeaking && ttsCaption ? (
-                        <motion.p
-                          key={ttsCaption}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          transition={{ duration: 0.3 }}
-                          className="max-w-lg text-center text-sm leading-relaxed text-muted-foreground"
-                        >
-                          {ttsCaption}
-                        </motion.p>
-                      ) : faceState === "thinking" ? (
-                        <motion.span
-                          key="thinking-label"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="animate-pulse text-xs text-muted-foreground/70"
-                        >
-                          {thinkingLabel}
-                        </motion.span>
-                      ) : audienceLabel ? (
-                        <motion.span
-                          key={pulseLabels.length > 0 ? pulseIndex : audienceLabel}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.5 }}
-                          className="max-w-[300px] text-center text-xs leading-snug text-muted-foreground/50"
-                        >
-                          {audienceLabel}
-                        </motion.span>
-                      ) : null}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Record controls */}
-                  <div className="mt-8 flex h-10 items-center justify-center gap-3">
-                    {(faceState === "idle" || faceState === "satisfied") && !isBusy && (
-                      <>
-                        {/* "Add slides" button or loading indicator */}
-                        {!transcript && !hasPresentationSlides && (
-                          slideReview.progress.step !== 'idle' && slideReview.progress.step !== 'done' && slideReview.progress.step !== 'error' ? (
-                            <div className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Loading slides...
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => presentationPdfInputRef.current?.click()}
-                              className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              Add slides
-                            </button>
-                          )
-                        )}
-                        <button
-                          ref={continueRef}
-                          type="button"
-                          onClick={handleStartRecording}
-                          className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
-                        >
-                          <span className="h-2 w-2 rounded-full bg-red-500" />
-                          Continue
-                        </button>
-                        {transcript && stage === 'present' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              stopSpeaking()
-                              setNavigatingToFeedback(true)
-                              setPresentationMode(false)
-                              finishPresentation()
-                            }}
-                            className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-2.5 text-sm text-primary/80 hover:bg-primary/10 hover:text-primary transition-colors"
-                          >
-                            I&apos;m done
-                          </button>
-                        )}
-                      </>
-                    )}
-
-                    {recorder.isRecording && (
-                      <div className="flex items-center gap-3">
-                        <div className="relative flex-shrink-0">
-                          <div className="h-2 w-2 rounded-full bg-red-500" />
-                          <div className="absolute inset-0 animate-ping rounded-full bg-red-500/60" />
-                        </div>
-                        <div className="w-40">
-                          <AudioWaveform analyser={recorder.analyserNode} />
-                        </div>
-                        <span className="flex-shrink-0 font-mono text-sm tabular-nums text-muted-foreground">
-                          {formatElapsed(recorder.elapsed)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={recorder.cancelRecording}
-                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-                          aria-label="Cancel recording"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleStopRecording}
-                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-red-500 text-white transition-colors hover:bg-red-600"
-                          aria-label="Stop recording and send"
-                        >
-                          <Square className="h-3.5 w-3.5 fill-current" />
-                        </button>
-                      </div>
-                    )}
-
-                  </div>
-                </div>
-              )
-
-              return hasPresentationSlides ? (
-                <div className="flex h-full w-full">
-                  {/* Left: face + captions + controls */}
-                  <div className="flex flex-1 flex-col md:w-[55%]">
-                    {faceColumn}
-                  </div>
-                  {/* Right: slide viewer — hidden on mobile, animates in */}
-                  <motion.div
-                    className="hidden md:flex w-[45%] border-l border-border/60"
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: "45%", opacity: 1 }}
-                    transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                  >
-                    <PresentationSlideViewer
-                      thumbnails={slideReview.thumbnails}
-                      currentSlide={presentationSlideIndex}
-                      onSlideChange={setPresentationSlideIndex}
-                      progress={slideReview.progress}
-                    />
-                  </motion.div>
-                </div>
-              ) : faceColumn
-            })()}
-          </motion.div>
+          <PresentationOverlay
+            faceState={faceState}
+            currentEmotion={currentEmotion}
+            audienceLabel={audienceLabel}
+            thinkingLabel={thinkingLabel}
+            isTTSSpeaking={isTTSSpeaking}
+            ttsCaption={ttsCaption}
+            isBusy={isBusy}
+            transcript={transcript}
+            stage={stage}
+            recorder={recorder}
+            slideReview={slideReview}
+            onStartRecording={handleStartRecording}
+            onStopRecording={handleStopRecording}
+            onFinish={handlePresentationFinish}
+            onSlideUpload={handlePresentationSlideUpload}
+          />
         )}
       </AnimatePresence>
 
@@ -1658,9 +706,8 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       <input ref={fileInputRef} type="file" accept="video/*,audio/*,.pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Upload video, audio, or PDF" />
       <input ref={recordingInputRef} type="file" accept="video/*,audio/*" onChange={handleFileUpload} className="hidden" aria-label="Upload video or audio recording" />
       <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePdfUpload} className="hidden" aria-label="Upload PDF slides" />
-      <input ref={presentationPdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePresentationSlideUpload} className="hidden" aria-label="Add slides to presentation" />
 
-      {/* Transition overlay — covers everything instantly to prevent flash */}
+      {/* Transition overlay */}
       {navigatingToFeedback && (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background">
           <Loader2 className="h-8 w-8 animate-spin text-primary/60" />

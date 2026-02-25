@@ -1,6 +1,7 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { researchRequestSchema, sanitizeInput } from '@/backend/validation'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import { generateSearchTerms } from '@/backend/research/search-terms'
 import { conductResearch } from '@/backend/research/web-research'
 
@@ -8,10 +9,10 @@ export async function handleResearch(request: NextRequest) {
   const ip = getClientIp(request)
 
   // Tight rate limit — research is expensive (web search + multiple model calls)
-  if (!checkRateLimit(ip, 3, 300_000).allowed) {
-    return new Response(
-      JSON.stringify({ error: 'Too many research requests. Please wait.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } }
+  if (!checkRateLimit(ip, RATE_LIMITS.research.limit, RATE_LIMITS.research.windowMs).allowed) {
+    return NextResponse.json(
+      { error: 'Too many research requests. Please wait.' },
+      { status: 429 }
     )
   }
 
@@ -19,17 +20,17 @@ export async function handleResearch(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid request format' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Invalid request format' },
+      { status: 400 }
     )
   }
 
   const parsed = researchRequestSchema.safeParse(body)
   if (!parsed.success) {
-    return new Response(
-      JSON.stringify({ error: 'Invalid request format' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Invalid request format' },
+      { status: 400 }
     )
   }
 

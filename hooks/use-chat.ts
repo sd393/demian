@@ -1,138 +1,98 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { upload } from '@vercel/blob/client'
-import { validateFile } from '@/backend/validation'
-import { shouldExtractClientSide, extractAudioClientSide } from '@/lib/client-audio'
-import type { CoachingStage, SetupContext } from '@/lib/coaching-stages'
+import { useState, useRef, useCallback } from 'react'
+import { buildAuthHeaders } from '@/lib/api-utils'
+import { parseSSEStream, createRAFBatcher } from '@/lib/sse-utils'
+import { useChatMessages, generateId } from '@/hooks/use-chat-messages'
+import { useTranscription } from '@/hooks/use-transcription'
+import { useResearchPipeline } from '@/hooks/use-research-pipeline'
+import { usePresentationStage } from '@/hooks/use-presentation-stage'
+import type { CoachingStage } from '@/lib/coaching-stages'
 
-export interface Attachment {
-  name: string
-  type: string
-  size: number
-}
-
-export interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  attachment?: Attachment
-}
-
-export interface ResearchMeta {
-  searchTerms: string[]
-  audienceSummary: string
-  briefing: string
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 11)
-}
-
-const INITIAL_MESSAGE: Message = {
-  id: generateId(),
-  role: 'assistant',
-  content:
-    "Hey — I'm Vera. I'll be your audience. Whenever you're ready, go ahead.",
-}
+// Re-export types so existing imports keep working
+export type { Attachment, Message } from '@/hooks/use-chat-messages'
+export type { ResearchMeta } from '@/hooks/use-research-pipeline'
 
 export function useChat(authToken?: string | null) {
-  const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE])
-  const [transcript, setTranscript] = useState<string | null>(null)
-  const [researchContext, setResearchContext] = useState<string | null>(null)
-  const [researchMeta, setResearchMeta] = useState<ResearchMeta | null>(null)
   const [slideContext, setSlideContext] = useState<string | null>(null)
-  const [isCompressing, setIsCompressing] = useState(false)
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const [isResearching, setIsResearching] = useState(false)
-  const [researchSearchTerms, setResearchSearchTerms] = useState<string[] | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [freeLimitReached, setFreeLimitReached] = useState(false)
 
-  // Stage machine state
-  const [stage, setStage] = useState<CoachingStage>('define')
-  const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
-  // Audience pulse history — accumulates all pulse labels during the session
-  const [audiencePulseHistory, setAudiencePulseHistory] = useState<{ text: string; emotion: string }[]>([])
-  const audiencePulseHistoryRef = useRef<{ text: string; emotion: string }[]>([])
-  audiencePulseHistoryRef.current = audiencePulseHistory
-
-  const abortControllerRef = useRef<AbortController | null>(null)
-  const messagesRef = useRef<Message[]>([INITIAL_MESSAGE])
-  const transcriptRef = useRef<string | null>(null)
-  const researchContextRef = useRef<string | null>(null)
   const slideContextRef = useRef<string | null>(null)
   const authTokenRef = useRef<string | null>(null)
-  const stageRef = useRef<CoachingStage>('define')
-  const setupContextRef = useRef<SetupContext | null>(null)
-  // Keep refs in sync with state on each render
-  messagesRef.current = messages
-  transcriptRef.current = transcript
-  researchContextRef.current = researchContext
   slideContextRef.current = slideContext
   authTokenRef.current = authToken ?? null
-  stageRef.current = stage
-  setupContextRef.current = setupContext
 
-  function abortInFlight() {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-      abortControllerRef.current = null
-    }
-  }
+  // Sub-hooks
+  const {
+    messages, setMessages, messagesRef, addMessage, resetMessages,
+  } = useChatMessages()
+
+  const stageHook = usePresentationStage()
+  const {
+    stage, stageRef, setupContext, setupContextRef,
+    audiencePulseHistory, appendPulseLabels,
+    startPresentation, finishPresentation, resetStage,
+  } = stageHook
+
+  const researchHook = useResearchPipeline({ authTokenRef, setupContextRef })
+  const {
+    researchContext, researchContextRef, researchMeta, researchSearchTerms,
+    isResearching, startResearchEarly, resetResearch,
+  } = researchHook
+
+  const setErrorSafe = useCallback((err: string | null) => setError(err), [])
+
+  const transcriptionHook = useTranscription({
+    messagesRef, setMessages, setError: setErrorSafe, authTokenRef,
+  })
+  const {
+    transcript, transcriptRef, isCompressing, isTranscribing,
+    abortInFlight, resetTranscription,
+  } = transcriptionHook
+
+  // ── Streaming ──
 
   const streamChatResponse = useCallback(
     async (
-      currentMessages: Message[],
+      currentMessages: ReturnType<typeof useChatMessages>['messages'],
       currentTranscript: string | null,
-      overrides?: {
-        stage?: CoachingStage
-      }
+      overrides?: { stage?: CoachingStage }
     ) => {
       setIsStreaming(true)
 
       const assistantMessageId = generateId()
       setMessages((prev) => [
         ...prev,
-        { id: assistantMessageId, role: 'assistant', content: '' },
+        { id: assistantMessageId, role: 'assistant' as const, content: '' },
       ])
 
-      const controller = new AbortController()
-      abortControllerRef.current = controller
+      const updateMessageContent = (content: string) =>
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMessageId ? { ...m, content } : m
+          )
+        )
 
-      // Hoisted so the catch block can flush on abort
-      let accumulated = ''
-      let rafId: number | null = null
+      const batcher = createRAFBatcher(updateMessageContent)
 
       try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        }
-        const token = authTokenRef.current
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`
-        }
-
         const effectiveStage = overrides?.stage ?? stageRef.current
 
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers,
+          headers: buildAuthHeaders(authTokenRef.current),
           body: JSON.stringify({
             messages: currentMessages
               .filter((m) => m.content !== '')
-              .map((m) => ({
-                role: m.role,
-                content: m.content,
-              })),
+              .map((m) => ({ role: m.role, content: m.content })),
             transcript: currentTranscript ?? undefined,
             researchContext: researchContextRef.current ?? undefined,
             slideContext: slideContextRef.current ?? undefined,
             stage: effectiveStage,
             setupContext: setupContextRef.current ?? undefined,
           }),
-          signal: controller.signal,
         })
 
         if (!response.ok) {
@@ -151,82 +111,29 @@ export function useChat(authToken?: string | null) {
         }
 
         const reader = response.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
 
-        // Flush accumulated content to state via requestAnimationFrame
-        function flushToState() {
-          const snapshot = accumulated
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMessageId
-                ? { ...m, content: snapshot }
-                : m
-            )
-          )
-          rafId = null
-        }
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const data = line.slice(6)
-            if (data === '[DONE]') break
-
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.content) {
-                accumulated += parsed.content
-                // Batch state updates with rAF
-                if (rafId === null) {
-                  rafId = requestAnimationFrame(flushToState)
-                }
-              }
-            } catch {
-              // Skip malformed chunks
+        await parseSSEStream<{ content?: string }>(reader, {
+          onEvent: (parsed) => {
+            if (parsed.content) {
+              batcher.append(parsed.content)
             }
-          }
-        }
+          },
+        })
 
-        // Final flush
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId)
-        }
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMessageId
-              ? { ...m, content: accumulated }
-              : m
-          )
-        )
+        batcher.flush()
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
-          // Flush whatever content accumulated before the abort
-          if (rafId !== null) cancelAnimationFrame(rafId)
-          if (accumulated) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantMessageId
-                  ? { ...m, content: accumulated }
-                  : m
-              )
-            )
+          batcher.cancel()
+          if (batcher.accumulated) {
+            updateMessageContent(batcher.accumulated)
           } else {
-            // Nothing accumulated — remove the empty placeholder
             setMessages((prev) =>
               prev.filter((m) => m.id !== assistantMessageId)
             )
           }
           return
         }
-        // Remove the empty assistant message on error
+        batcher.cancel()
         setMessages((prev) =>
           prev.filter((m) => m.id !== assistantMessageId)
         )
@@ -237,179 +144,10 @@ export function useChat(authToken?: string | null) {
         setIsStreaming(false)
       }
     },
-    []
+    [setMessages, stageRef, authTokenRef, researchContextRef, slideContextRef, setupContextRef]
   )
 
-  const startResearchEarly = useCallback(
-    async (audience: string, opts?: { topic?: string; goal?: string; additionalContext?: string }) => {
-      setIsResearching(true)
-      setResearchSearchTerms(null)
-      try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        }
-        const token = authTokenRef.current
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`
-        }
-
-        const response = await fetch('/api/research', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            audienceDescription: audience,
-            topic: opts?.topic || undefined,
-            goal: opts?.goal || undefined,
-            additionalContext: opts?.additionalContext || undefined,
-          }),
-        })
-
-        if (!response.ok) {
-          console.warn('[research] Early research failed:', response.status)
-          return null
-        }
-
-        const reader = response.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: string | null = null
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.event === 'terms') {
-                setResearchSearchTerms(data.searchTerms)
-              } else if (data.event === 'complete') {
-                setResearchContext(data.researchContext)
-                researchContextRef.current = data.researchContext
-                setResearchMeta({
-                  searchTerms: data.searchTerms,
-                  audienceSummary: data.audienceSummary,
-                  briefing: data.researchContext,
-                })
-                result = data.researchContext
-              } else if (data.event === 'error') {
-                console.warn('[research] Server-side pipeline error:', data.error)
-              }
-            } catch {
-              // Skip malformed chunks
-            }
-          }
-        }
-
-        return result
-      } catch (err) {
-        console.warn('[research] Early research error, proceeding without enrichment', err)
-        return null
-      } finally {
-        setIsResearching(false)
-        setResearchSearchTerms(null)
-      }
-    },
-    []
-  )
-
-  const runResearchPipeline = useCallback(
-    async (currentTranscript: string, currentMessages: Message[]) => {
-      setIsResearching(true)
-      setResearchSearchTerms(null)
-      try {
-        // Extract audience description from user text messages after the upload
-        const uploadIndex = currentMessages.findIndex((m) => m.attachment)
-        const audienceMessages = currentMessages
-          .slice(uploadIndex + 1)
-          .filter((m) => m.role === 'user')
-          .map((m) => m.content)
-
-        if (audienceMessages.length === 0) return null
-
-        const audienceDescription = audienceMessages.join('\n')
-
-        console.log('[research] Starting pipeline...', { audienceDescription })
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        }
-        const token = authTokenRef.current
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`
-        }
-
-        const setup = setupContextRef.current
-        const response = await fetch('/api/research', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            transcript: currentTranscript,
-            audienceDescription,
-            topic: setup?.topic || undefined,
-            goal: setup?.goal || undefined,
-            additionalContext: setup?.additionalContext || undefined,
-          }),
-        })
-
-        if (!response.ok) {
-          console.warn('[research] Pipeline failed:', response.status)
-          return null
-        }
-
-        const reader = response.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: string | null = null
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.event === 'terms') {
-                setResearchSearchTerms(data.searchTerms)
-              } else if (data.event === 'complete') {
-                setResearchContext(data.researchContext)
-                researchContextRef.current = data.researchContext
-                setResearchMeta({
-                  searchTerms: data.searchTerms,
-                  audienceSummary: data.audienceSummary,
-                  briefing: data.researchContext,
-                })
-                result = data.researchContext
-              } else if (data.event === 'error') {
-                console.warn('[research] Server-side pipeline error:', data.error)
-              }
-            } catch {
-              // Skip malformed chunks
-            }
-          }
-        }
-
-        return result
-      } catch (err) {
-        console.warn('[research] Pipeline error, proceeding without enrichment', err)
-        return null
-      } finally {
-        setIsResearching(false)
-        setResearchSearchTerms(null)
-      }
-    },
-    []
-  )
+  // ── Send message ──
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -418,217 +156,53 @@ export function useChat(authToken?: string | null) {
 
       abortInFlight()
 
-      const userMessage: Message = {
+      const userMessage = {
         id: generateId(),
-        role: 'user',
+        role: 'user' as const,
         content: trimmed,
       }
 
-      // Read latest messages from ref to avoid stale closure issues
       const updatedMessages = [...messagesRef.current, userMessage]
       messagesRef.current = updatedMessages
       setMessages(updatedMessages)
 
       await streamChatResponse(updatedMessages, transcriptRef.current)
     },
-    [streamChatResponse]
+    [abortInFlight, messagesRef, setMessages, streamChatResponse, transcriptRef]
   )
 
-  const startPresentation = useCallback(
-    (context: SetupContext) => {
-      setSetupContext(context)
-      setupContextRef.current = context
-      setStage('present')
-      stageRef.current = 'present'
-    },
-    []
-  )
-
-  const finishPresentation = useCallback(
-    () => {
-      // Skip straight to followup — the feedback page handles scoring/display
-      setStage('followup')
-      stageRef.current = 'followup'
-    },
-    []
-  )
+  // ── Upload file ──
 
   const uploadFile = useCallback(
     async (file: File) => {
-      // Client-side validation
-      const validation = validateFile({
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      })
-
-      if (!validation.valid) {
-        setError(validation.error)
-        return
-      }
-
-      abortInFlight()
-      setIsTranscribing(true)
-      setError(null)
-
-      // Add the user's upload message
-      const uploadMessage: Message = {
-        id: generateId(),
-        role: 'user',
-        content: 'Uploaded a recording for review',
-        attachment: {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-        },
-      }
-
-      const updatedMessages = [...messagesRef.current, uploadMessage]
-      messagesRef.current = updatedMessages
-      setMessages(updatedMessages)
-
-      const controller = new AbortController()
-      abortControllerRef.current = controller
-
-      try {
-        // For large videos, extract audio client-side to reduce upload size
-        let fileToUpload: File = file
-        if (shouldExtractClientSide(file)) {
-          setIsCompressing(true)
-          const compressed = await extractAudioClientSide(file)
-          setIsCompressing(false)
-          if (compressed) {
-            fileToUpload = compressed
+      await transcriptionHook.uploadFile(file, {
+        onTranscriptReady: async (updatedMessages, newTranscript) => {
+          if (stageRef.current === 'present') {
+            await streamChatResponse(updatedMessages, newTranscript)
+          } else {
+            await finishPresentation()
           }
-        }
-
-        // Upload file directly to Vercel Blob (bypasses serverless body limit)
-        // Retry once on transient failure (CDN hiccup, cold-start timeout, etc.)
-        let blob: { url: string }
-        try {
-          blob = await upload(fileToUpload.name, fileToUpload, {
-            access: 'public',
-            handleUploadUrl: '/api/upload',
-          })
-        } catch {
-          await new Promise((r) => setTimeout(r, 1000))
-          blob = await upload(fileToUpload.name, fileToUpload, {
-            access: 'public',
-            handleUploadUrl: '/api/upload',
-          })
-        }
-
-        const response = await fetch('/api/transcribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ blobUrl: blob.url, fileName: fileToUpload.name }),
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}))
-          throw new Error(
-            err.error || `Transcription failed with status ${response.status}`
-          )
-        }
-
-        const data = await response.json()
-        const newTranscript = data.transcript as string
-
-        setTranscript(newTranscript)
-        setIsTranscribing(false)
-
-        // Update the upload message to include the transcript for conversation context
-        const updatedWithTranscript = updatedMessages.map(m =>
-          m.id === uploadMessage.id
-            ? { ...m, content: `[Presentation transcript]\n${newTranscript}` }
-            : m
-        )
-        messagesRef.current = updatedWithTranscript
-        setMessages(updatedWithTranscript)
-
-        if (stageRef.current === 'present') {
-          // Live presentation: stream coaching feedback, stay in present stage
-          await streamChatResponse(updatedWithTranscript, newTranscript)
-        } else {
-          // Upload-recording flow: skip straight to feedback
-          await finishPresentation()
-        }
-      } catch (err: unknown) {
-        setIsCompressing(false)
-        // Only silently swallow abort if WE intentionally canceled (user
-        // started a new action). AbortErrors from the Vercel Blob client or
-        // browser-level timeouts should surface as visible errors.
-        if (
-          err instanceof Error &&
-          err.name === 'AbortError' &&
-          controller.signal.aborted
-        ) {
-          setIsTranscribing(false)
-          return
-        }
-        setError(
-          err instanceof Error ? err.message : 'Failed to transcribe file'
-        )
-        setIsTranscribing(false)
-      }
+        },
+      })
     },
-    [finishPresentation, streamChatResponse]
+    [transcriptionHook, stageRef, streamChatResponse, finishPresentation]
   )
 
-  // Add a message to the timeline without triggering a chat completion.
-  // Used for PDF uploads that open the slide panel instead of sending to the AI.
-  // Returns the generated message ID so callers can associate state with this message.
-  const addMessage = useCallback(
-    (content: string, attachment?: Attachment): string => {
-      const id = generateId()
-      const message: Message = {
-        id,
-        role: 'user',
-        content,
-        ...(attachment ? { attachment } : {}),
-      }
-      const updated = [...messagesRef.current, message]
-      messagesRef.current = updated
-      setMessages(updated)
-      return id
-    },
-    []
-  )
+  // ── Reset ──
 
-  const appendPulseLabels = useCallback(
-    (labels: { text: string; emotion: string }[]) => {
-      setAudiencePulseHistory((prev) => [...prev, ...labels])
-    },
-    []
-  )
-
-  const clearError = useCallback(() => {
-    setError(null)
-  }, [])
+  const clearError = useCallback(() => setError(null), [])
 
   const resetConversation = useCallback(() => {
     abortInFlight()
-    setMessages([INITIAL_MESSAGE])
-    setTranscript(null)
-    setResearchContext(null)
-    setResearchMeta(null)
-    setResearchSearchTerms(null)
+    resetMessages()
+    resetTranscription()
+    resetResearch()
+    resetStage()
     setSlideContext(null)
-    researchContextRef.current = null
     slideContextRef.current = null
-    setStage('define')
-    stageRef.current = 'define'
-    setSetupContext(null)
-    setupContextRef.current = null
-    setAudiencePulseHistory([])
-    audiencePulseHistoryRef.current = []
-    setIsCompressing(false)
-    setIsTranscribing(false)
-    setIsResearching(false)
     setIsStreaming(false)
     setError(null)
-  }, [])
+  }, [abortInFlight, resetMessages, resetTranscription, resetResearch, resetStage])
 
   return {
     messages,

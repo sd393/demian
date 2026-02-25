@@ -111,6 +111,27 @@ export const blobDeleteRequestSchema = z.object({
   urls: z.array(z.string().url()).min(1).max(50),
 })
 
+export const feedbackScoreRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  transcript: z.string().max(100_000).optional(),
+  setup: z.object({
+    topic: z.string().max(500),
+    audience: z.string().max(500),
+    goal: z.string().max(500),
+    additionalContext: z.string().max(2000).optional(),
+  }),
+  messages: z
+    .array(
+      z.object({
+        role: z.string(),
+        content: z.string(),
+      })
+    )
+    .max(200),
+  researchContext: z.string().max(20_000).optional(),
+  slideContext: z.string().max(30_000).optional(),
+})
+
 export function sanitizeInput(text: string): string {
   return text.trim()
 }

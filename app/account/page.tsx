@@ -5,6 +5,7 @@ import { User, Mail, CreditCard, LogOut, Lock } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
+import { buildAuthHeaders } from "@/lib/api-utils"
 
 export default function AccountPage() {
   const router = useRouter()
@@ -91,10 +92,7 @@ export default function AccountPage() {
       const token = await user!.getIdToken()
       const res = await fetch("/api/billing-portal", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: buildAuthHeaders(token),
       })
 
       if (!res.ok) {
