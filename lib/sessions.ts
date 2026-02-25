@@ -156,6 +156,24 @@ export async function updateSessionScores(
   await updateDoc(ref, { scores })
 }
 
+export async function deleteSession(
+  sessionId: string,
+  authToken: string
+): Promise<void> {
+  const res = await fetch("/api/sessions/delete", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ sessionId }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    throw new Error(data?.error ?? "Failed to delete session")
+  }
+}
+
 export async function listSessions(
   userId: string,
   maxResults = 20

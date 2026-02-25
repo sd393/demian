@@ -1,29 +1,49 @@
 "use client"
 
 import Link from "next/link"
-import { History, Inbox, AlertCircle, X } from "lucide-react"
+import { History, Inbox, AlertCircle, X, Trash2 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { SessionSummary } from "@/lib/sessions"
 
 /* ── Session card ── */
 
-function SessionCard({ session }: { session: SessionSummary }) {
+function SessionCard({
+  session,
+  onDelete,
+}: {
+  session: SessionSummary
+  onDelete?: (id: string) => void
+}) {
   return (
     <Link
       href={`/feedback/${session.id}`}
-      className="group flex items-start gap-3 rounded-lg border border-border/40 p-3 transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
+      className="group relative flex items-start gap-3 rounded-lg border border-border/40 p-3 transition-all hover:border-primary/20 hover:bg-primary/[0.03] active:scale-[0.98]"
     >
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onDelete(session.id)
+          }}
+          className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+          aria-label="Delete session"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground group-hover:text-foreground/90">
+        <p className="line-clamp-2 text-sm font-medium text-foreground group-hover:text-foreground/90">
           {session.topic}
         </p>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="max-w-[10rem] truncate rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
             {session.audience}
           </span>
           {session.goal && (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+            <span className="max-w-[10rem] truncate rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
               {session.goal}
             </span>
           )}
@@ -94,6 +114,7 @@ interface SessionHistorySidebarProps {
   sessions: SessionSummary[]
   loading: boolean
   error: string | null
+  onDelete?: (id: string) => void
 }
 
 export function SessionHistorySidebar({
@@ -102,6 +123,7 @@ export function SessionHistorySidebar({
   sessions,
   loading,
   error,
+  onDelete,
 }: SessionHistorySidebarProps) {
   if (!open) return null
 
@@ -134,7 +156,7 @@ export function SessionHistorySidebar({
         ) : (
           <div className="space-y-2">
             {sessions.map((s) => (
-              <SessionCard key={s.id} session={s} />
+              <SessionCard key={s.id} session={s} onDelete={onDelete} />
             ))}
           </div>
         )}

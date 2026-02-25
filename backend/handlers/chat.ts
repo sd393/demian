@@ -3,11 +3,7 @@ import { openai } from '@/backend/openai'
 import { chatRequestSchema, sanitizeInput } from '@/backend/validation'
 import { buildSystemPrompt } from '@/backend/system-prompt'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
-import {
-  checkTrialLimit,
-  incrementTrialUsage,
-} from '@/backend/trial-limit'
-import { verifyAuth } from '@/backend/auth'
+import { requireAuth } from '@/backend/auth'
 import { getUserPlan } from '@/backend/subscription'
 import { SSE_HEADERS } from '@/backend/request-utils'
 
@@ -20,40 +16,25 @@ export async function handleChat(request: NextRequest) {
     )
   }
 
-  const authResult = await verifyAuth(request)
+  const authResult = await requireAuth(request)
 
-  // If verifyAuth returned a Response, it's a 401 error
+  // If requireAuth returned a Response, it's a 401 error
   if (authResult instanceof Response) {
     return authResult
   }
 
-  const isTrialUser = authResult === null
-
-  if (isTrialUser) {
-    const trial = checkTrialLimit(ip)
-    if (!trial.allowed) {
+  // Authenticated user — check plan-based limits
+  const { plan } = await getUserPlan(authResult.uid)
+  if (plan !== 'pro') {
+    // Free authenticated users: 20 messages per 24h
+    if (!checkRateLimit('free:' + authResult.uid, 20, 86_400_000).allowed) {
       return new Response(
         JSON.stringify({
-          error: 'You\'ve used all your free messages. Sign up to continue.',
-          code: 'trial_limit_reached',
+          error: 'You\'ve reached your daily message limit. Upgrade to Pro for unlimited messages.',
+          code: 'free_limit_reached',
         }),
         { status: 403, headers: { 'Content-Type': 'application/json' } }
       )
-    }
-  } else {
-    // Authenticated user — check plan-based limits
-    const { plan } = await getUserPlan(authResult.uid)
-    if (plan !== 'pro') {
-      // Free authenticated users: 20 messages per 24h
-      if (!checkRateLimit('free:' + authResult.uid, 20, 86_400_000).allowed) {
-        return new Response(
-          JSON.stringify({
-            error: 'You\'ve reached your daily message limit. Upgrade to Pro for unlimited messages.',
-            code: 'free_limit_reached',
-          }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
     }
   }
 
@@ -99,14 +80,6 @@ export async function handleChat(request: NextRequest) {
       max_tokens: stage === 'feedback' ? 3000 : 2000,
     })
 
-    if (isTrialUser) {
-      incrementTrialUsage(ip)
-    }
-
-    const trialRemaining = isTrialUser
-      ? checkTrialLimit(ip).remaining
-      : undefined
-
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
       async start(controller) {
@@ -119,13 +92,6 @@ export async function handleChat(request: NextRequest) {
               )
             }
           }
-          if (trialRemaining !== undefined) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ trial_remaining: trialRemaining })}\n\n`
-              )
-            )
-          }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {
@@ -135,13 +101,7 @@ export async function handleChat(request: NextRequest) {
       },
     })
 
-    const headers: Record<string, string> = { ...SSE_HEADERS }
-
-    if (trialRemaining !== undefined) {
-      headers['X-Trial-Remaining'] = String(trialRemaining)
-    }
-
-    return new Response(readable, { headers })
+    return new Response(readable, { headers: SSE_HEADERS })
   } catch (error) {
     console.error('Chat error:', error)
     return new Response(

@@ -26,13 +26,8 @@ vi.mock('@/backend/rate-limit', () => ({
   getClientIp: vi.fn().mockReturnValue('127.0.0.1'),
 }))
 
-vi.mock('@/backend/trial-limit', () => ({
-  checkTrialLimit: vi.fn().mockReturnValue({ allowed: true, remaining: 3 }),
-  incrementTrialUsage: vi.fn(),
-}))
-
 vi.mock('@/backend/auth', () => ({
-  verifyAuth: vi.fn().mockResolvedValue(null),
+  requireAuth: vi.fn().mockResolvedValue({ uid: 'user123', email: 'test@test.com' }),
 }))
 
 vi.mock('@/backend/subscription', () => ({
@@ -42,8 +37,7 @@ vi.mock('@/backend/subscription', () => ({
 import { POST } from '@/app/api/chat/route'
 import { NextRequest } from 'next/server'
 import { checkRateLimit } from '@/backend/rate-limit'
-import { checkTrialLimit, incrementTrialUsage } from '@/backend/trial-limit'
-import { verifyAuth } from '@/backend/auth'
+import { requireAuth } from '@/backend/auth'
 
 function createRequest(
   body: object,
@@ -72,9 +66,26 @@ describe('POST /api/chat', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
-    vi.mocked(checkTrialLimit).mockReturnValue({ allowed: true, remaining: 3 })
-    vi.mocked(verifyAuth).mockResolvedValue(null) // default: trial user
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
     mockCreate.mockImplementation(() => createMockStream())
+  })
+
+  it('returns 401 for unauthenticated requests', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+    })
+    const response = await POST(request)
+    expect(response.status).toBe(401)
+
+    const body = await response.json()
+    expect(body.error).toContain('Authentication required')
   })
 
   it('returns 400 for invalid request body', async () => {
@@ -162,78 +173,21 @@ describe('POST /api/chat', () => {
     expect(response.status).toBe(200)
   })
 
-  // Trial-specific tests
-
-  it('returns 403 when trial limit is exhausted', async () => {
-    vi.mocked(checkTrialLimit).mockReturnValue({ allowed: false, remaining: 0 })
+  it('returns 401 for invalid token', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: 'Invalid or expired token' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
 
     const request = createRequest({
       messages: [{ role: 'user', content: 'Hello' }],
     })
     const response = await POST(request)
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(401)
 
     const body = await response.json()
-    expect(body.code).toBe('trial_limit_reached')
-  })
-
-  it('skips trial check when Authorization header is present', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
-
-    const request = createRequest(
-      { messages: [{ role: 'user', content: 'Hello' }] },
-      { Authorization: 'Bearer some-token' }
-    )
-    const response = await POST(request)
-    expect(response.status).toBe(200)
-
-    expect(checkTrialLimit).not.toHaveBeenCalled()
-    expect(incrementTrialUsage).not.toHaveBeenCalled()
-  })
-
-  it('calls incrementTrialUsage for trial users', async () => {
-    const request = createRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    })
-    const response = await POST(request)
-    await readStream(response)
-
-    expect(incrementTrialUsage).toHaveBeenCalledWith('127.0.0.1')
-  })
-
-  it('includes trial_remaining event in stream for trial users', async () => {
-    const request = createRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    })
-    const response = await POST(request)
-    const streamContent = await readStream(response)
-
-    const lines = streamContent
-      .split('\n\n')
-      .filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
-      .map((l) => JSON.parse(l.slice(6)))
-
-    const trialEvent = lines.find(
-      (p) => p.trial_remaining !== undefined
-    )
-    expect(trialEvent).toBeDefined()
-  })
-
-  it('does not include trial_remaining event for authenticated users', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
-
-    const request = createRequest(
-      { messages: [{ role: 'user', content: 'Hello' }] },
-      { Authorization: 'Bearer some-token' }
-    )
-    const response = await POST(request)
-    const streamContent = await readStream(response)
-
-    const lines = streamContent
-      .split('\n\n')
-      .filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
-
-    const hasTrialEvent = lines.some((l) => l.includes('trial_remaining'))
-    expect(hasTrialEvent).toBe(false)
+    expect(body.error).toContain('Invalid or expired token')
   })
 })

@@ -7,7 +7,7 @@ interface AuthResult {
 
 /**
  * Verify the Firebase ID token from the Authorization header.
- * Returns the decoded user if valid, null if no token (trial user),
+ * Returns the decoded user if valid, null if no token is present,
  * or a 401 Response if the token is present but invalid.
  */
 export async function verifyAuth(

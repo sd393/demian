@@ -48,10 +48,6 @@ export function useChat(authToken?: string | null) {
   const [researchSearchTerms, setResearchSearchTerms] = useState<string[] | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [trialMessagesRemaining, setTrialMessagesRemaining] = useState<
-    number | null
-  >(null)
-  const [trialLimitReached, setTrialLimitReached] = useState(false)
   const [freeLimitReached, setFreeLimitReached] = useState(false)
 
   // Stage machine state
@@ -83,19 +79,6 @@ export function useChat(authToken?: string | null) {
   stageRef.current = stage
   setupContextRef.current = setupContext
   qaQuestionsAskedRef.current = qaQuestionsAsked
-
-  // On mount for trial users, check cookie for prior trial usage
-  useEffect(() => {
-    if (authToken) return
-    const match = document.cookie.match(/vera_trial_remaining=(\d+)/)
-    if (match) {
-      const remaining = parseInt(match[1], 10)
-      setTrialMessagesRemaining(remaining)
-      if (remaining <= 0) {
-        setTrialLimitReached(true)
-      }
-    }
-  }, [authToken])
 
   function abortInFlight() {
     if (abortControllerRef.current) {
@@ -158,14 +141,6 @@ export function useChat(authToken?: string | null) {
 
         if (!response.ok) {
           const err = await response.json().catch(() => ({}))
-          if (err.code === 'trial_limit_reached') {
-            setTrialLimitReached(true)
-            setMessages((prev) =>
-              prev.filter((m) => m.id !== assistantMessageId)
-            )
-            setIsStreaming(false)
-            return
-          }
           if (err.code === 'free_limit_reached') {
             setFreeLimitReached(true)
             setMessages((prev) =>
@@ -213,14 +188,7 @@ export function useChat(authToken?: string | null) {
 
             try {
               const parsed = JSON.parse(data)
-              if (parsed.trial_remaining !== undefined) {
-                const remaining = parsed.trial_remaining as number
-                setTrialMessagesRemaining(remaining)
-                if (remaining <= 0) {
-                  setTrialLimitReached(true)
-                }
-                document.cookie = `vera_trial_remaining=${remaining};path=/;max-age=2592000;SameSite=Lax`
-              } else if (parsed.content) {
+              if (parsed.content) {
                 accumulated += parsed.content
                 // Batch state updates with rAF
                 if (rafId === null) {
@@ -692,8 +660,6 @@ export function useChat(authToken?: string | null) {
     isResearching,
     isStreaming,
     error,
-    trialMessagesRemaining,
-    trialLimitReached,
     freeLimitReached,
     stage,
     setupContext,

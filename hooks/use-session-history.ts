@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { listSessions, type SessionSummary } from "@/lib/sessions"
+import { listSessions, deleteSession, type SessionSummary } from "@/lib/sessions"
 
 interface UseSessionHistoryOptions {
   userId: string | null
+  authToken: string | null
 }
 
-export function useSessionHistory({ userId }: UseSessionHistoryOptions) {
+export function useSessionHistory({ userId, authToken }: UseSessionHistoryOptions) {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,5 +35,18 @@ export function useSessionHistory({ userId }: UseSessionHistoryOptions) {
     }
   }, [userId, refresh])
 
-  return { sessions, loading, error, refresh }
+  const removeSession = useCallback(async (sessionId: string) => {
+    if (!authToken) return
+    const previous = sessions
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    try {
+      await deleteSession(sessionId, authToken)
+    } catch (err) {
+      setSessions(previous)
+      refresh()
+      throw err
+    }
+  }, [authToken, sessions, refresh])
+
+  return { sessions, loading, error, refresh, removeSession }
 }
