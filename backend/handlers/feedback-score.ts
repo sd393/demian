@@ -165,9 +165,8 @@ export async function handleFeedbackScore(request: NextRequest) {
     }
 
     const prompt = buildScoringPrompt(parsed.data)
-    const client = openai()
 
-    const completion = await client.chat.completions.create({
+    const completion = await openai().chat.completions.create({
       model: "gpt-4o",
       messages: [{ role: "system", content: prompt }],
       response_format: { type: "json_object" },
@@ -183,10 +182,8 @@ export async function handleFeedbackScore(request: NextRequest) {
       )
     }
 
-    const scores: SessionScoresV2 = JSON.parse(content)
-
     return new Response(
-      JSON.stringify({ sessionId: parsed.data.sessionId, scores }),
+      JSON.stringify({ sessionId: parsed.data.sessionId, scores: JSON.parse(content) as SessionScoresV2 }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     )
   } catch (error) {
