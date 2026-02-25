@@ -60,8 +60,21 @@ function buildScoringPrompt(input: z.infer<typeof feedbackScoreRequestSchema>): 
   parts.push(`
 Your job is to produce a structured evaluation of this presentation. Respond with valid JSON.
 
+PRE-CHECK — Presentation Completeness:
+Before scoring, assess whether this was a complete, substantive presentation. Signs of an incomplete presentation:
+- Transcript is very short (under ~2 minutes of speech)
+- Presenter only covered 1-2 topics but the pitch type requires 5+
+- Key sections expected for the goal are entirely missing (e.g. a funding pitch with no ask, no market, no team)
+- The session ended early or abruptly
+
+If the presentation is incomplete:
+- Any criterion not covered scores 0 (enforced by the zero-default rule below)
+- Criteria that WERE covered but only partially score in the 10-25 range
+- The feedback letter must explicitly address the incomplete nature — this is honest, not harsh
+- In a real pitch, showing up without a full deck is disqualifying. Reflect that reality.
+
 STEP 1 — FEEDBACK LETTER
-Write a feedback letter (3-5 paragraphs) as Vera speaking directly to the presenter. Written in first person, in character as the audience. Include what landed, what didn't, and naturally weave in one strong point and one area for improvement. Paragraph form — no headers, no bullet points, no markdown formatting. Just honest, direct prose like you're talking to them afterward.
+Write a feedback letter (3-5 paragraphs) as Vera speaking directly to the presenter. Written in first person, in character as the audience. Include what landed, what didn't, and naturally weave in one strong point and one area for improvement. Paragraph form — no headers, no bullet points, no markdown formatting. Just honest, direct prose like you're talking to them afterward. If the presentation was incomplete, say so directly — it would be dishonest not to.
 
 STEP 2 — DYNAMIC RUBRIC
 Generate 4-6 rubric criteria that are SPECIFIC to this audience and goal. Do NOT use generic categories like "clarity" or "engagement". Instead, choose criteria that reflect what THIS audience actually cares about.
@@ -76,6 +89,9 @@ You choose the criteria based on the audience, goal, and what actually matters t
 STEP 3 — SCORING
 Score each criterion 0-100 with a 2-3 sentence summary and 1-3 direct transcript quotes as evidence.
 
+CRITICAL RULE — Zero by Default:
+If a criterion was NOT addressed in the transcript, score it 0. Do not infer intent, do not give partial credit for "implied" coverage, do not give benefit of the doubt. If the presenter didn't say it, they didn't cover it. A score above 0 requires direct evidence from the transcript.
+
 For EACH criterion, also provide "descriptors" — a one-sentence description of what each scoring tier looks like for that specific criterion. This turns the rubric into a proper scoring guide so the presenter understands what each level means.
 
 Scoring tiers:
@@ -85,13 +101,18 @@ Scoring tiers:
 - Needs Work (0-49): What poor or missing performance looks like
 
 Calibration guide:
-- 50 = average (gets the point across but nothing special)
-- 70 = good (clear, organized, effective for this audience)
-- 85+ = exceptional (compelling, memorable, this audience walks away convinced)
+- 0   = not addressed at all (no evidence in transcript)
+- 15  = mentioned in passing, no real substance
+- 35  = touched on but incomplete or unconvincing
+- 55  = adequate — covered it, audience understood the point
+- 70  = good — clear, organized, effective for this audience
+- 85+ = exceptional — compelling, memorable, audience walks away convinced
 
 Score as the specified audience — what matters to THEM, not a generic coach.
 
 STEP 4 — HIGHLIGHTS
+Provide 1-3 direct transcript quotes as evidence. If you cannot find a direct quote for a criterion, that is a strong signal the criterion was not addressed — score it 0.
+
 Identify:
 - The strongest moment: a direct transcript quote + why it worked for this audience
 - One area to improve: a specific issue + a concrete, actionable suggestion
