@@ -1508,13 +1508,26 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
                           <button
                             type="button"
                             onClick={() => {
-                              setPresentationMode(false)
                               stopSpeaking()
-                              saveAndNavigateToFeedback()
+                              setPresentationMode(false)
+                              finishPresentation()
                             }}
                             className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-2.5 text-sm text-primary/80 hover:bg-primary/10 hover:text-primary transition-colors"
                           >
                             I&apos;m done
+                          </button>
+                        )}
+                        {transcript && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              stopSpeaking()
+                              setPresentationMode(false)
+                              saveAndNavigateToFeedback()
+                            }}
+                            className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
+                          >
+                            Skip to feedback
                           </button>
                         )}
                       </>
