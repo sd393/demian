@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Check } from "lucide-react"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
+import { buildAuthHeaders } from "@/lib/api-utils"
 
 const plans = [
   {
@@ -61,10 +62,7 @@ function PremiumContent() {
       const token = await user.getIdToken()
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: buildAuthHeaders(token),
       })
 
       if (!res.ok) {

@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/backend/stripe'
 import { ensureUserDoc, updateSubscription } from '@/backend/subscription'
 import { db } from '@/backend/firebase-admin'
@@ -7,18 +7,18 @@ import type Stripe from 'stripe'
 export async function handleWebhook(request: NextRequest) {
   const signature = request.headers.get('stripe-signature')
   if (!signature) {
-    return new Response(
-      JSON.stringify({ error: 'Missing stripe-signature header' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Missing stripe-signature header' },
+      { status: 400 }
     )
   }
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
   if (!webhookSecret) {
     console.error('STRIPE_WEBHOOK_SECRET is not configured')
-    return new Response(
-      JSON.stringify({ error: 'Webhook not configured' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Webhook not configured' },
+      { status: 500 }
     )
   }
 
@@ -27,9 +27,9 @@ export async function handleWebhook(request: NextRequest) {
     const body = await request.text()
     event = stripe().webhooks.constructEvent(body, signature, webhookSecret)
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid signature' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Invalid signature' },
+      { status: 400 }
     )
   }
 
@@ -133,10 +133,7 @@ export async function handleWebhook(request: NextRequest) {
     // Still return 200 to prevent Stripe from retrying on server errors
   }
 
-  return new Response(JSON.stringify({ received: true }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return NextResponse.json({ received: true })
 }
 
 function mapSubscriptionStatus(

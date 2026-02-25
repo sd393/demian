@@ -26,13 +26,8 @@ vi.mock('@/backend/rate-limit', () => ({
   getClientIp: vi.fn().mockReturnValue('127.0.0.1'),
 }))
 
-vi.mock('@/backend/trial-limit', () => ({
-  checkTrialLimit: vi.fn().mockReturnValue({ allowed: true, remaining: 3 }),
-  incrementTrialUsage: vi.fn(),
-}))
-
 vi.mock('@/backend/auth', () => ({
-  verifyAuth: vi.fn().mockResolvedValue(null),
+  requireAuth: vi.fn().mockResolvedValue({ uid: 'user123', email: 'test@test.com' }),
 }))
 
 vi.mock('@/backend/subscription', () => ({
@@ -42,8 +37,7 @@ vi.mock('@/backend/subscription', () => ({
 import { POST } from '@/app/api/chat/route'
 import { NextRequest } from 'next/server'
 import { checkRateLimit } from '@/backend/rate-limit'
-import { checkTrialLimit, incrementTrialUsage } from '@/backend/trial-limit'
-import { verifyAuth } from '@/backend/auth'
+import { requireAuth } from '@/backend/auth'
 
 function createRequest(
   body: object,
@@ -72,9 +66,26 @@ describe('POST /api/chat', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
-    vi.mocked(checkTrialLimit).mockReturnValue({ allowed: true, remaining: 3 })
-    vi.mocked(verifyAuth).mockResolvedValue(null) // default: trial user
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
     mockCreate.mockImplementation(() => createMockStream())
+  })
+
+  it('returns 401 for unauthenticated requests', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+    })
+    const response = await POST(request)
+    expect(response.status).toBe(401)
+
+    const body = await response.json()
+    expect(body.error).toContain('Authentication required')
   })
 
   it('returns 400 for invalid request body', async () => {
@@ -162,78 +173,102 @@ describe('POST /api/chat', () => {
     expect(response.status).toBe(200)
   })
 
-  // Trial-specific tests
-
-  it('returns 403 when trial limit is exhausted', async () => {
-    vi.mocked(checkTrialLimit).mockReturnValue({ allowed: false, remaining: 0 })
+  it('returns 401 for invalid token', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: 'Invalid or expired token' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
 
     const request = createRequest({
       messages: [{ role: 'user', content: 'Hello' }],
     })
     const response = await POST(request)
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(401)
 
     const body = await response.json()
-    expect(body.code).toBe('trial_limit_reached')
+    expect(body.error).toContain('Invalid or expired token')
   })
 
-  it('skips trial check when Authorization header is present', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
+  it('includes transcript in system prompt when provided', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Give me feedback' }],
+      transcript: 'Good morning, today I will present our Q4 strategy.',
+      stage: 'feedback',
+    })
+    await POST(request)
 
-    const request = createRequest(
-      { messages: [{ role: 'user', content: 'Hello' }] },
-      { Authorization: 'Bearer some-token' }
-    )
-    const response = await POST(request)
-    expect(response.status).toBe(200)
-
-    expect(checkTrialLimit).not.toHaveBeenCalled()
-    expect(incrementTrialUsage).not.toHaveBeenCalled()
+    const callArgs = mockCreate.mock.calls[0][0]
+    const systemMsg = callArgs.messages.find((m: { role: string }) => m.role === 'system')
+    expect(systemMsg.content).toContain('Good morning, today I will present our Q4 strategy.')
+    expect(systemMsg.content).toContain('TRANSCRIPT')
   })
 
-  it('calls incrementTrialUsage for trial users', async () => {
+  it('includes researchContext in system prompt when provided', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Give me feedback' }],
+      researchContext: 'VCs prioritize unit economics and market size above all else.',
+      stage: 'feedback',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    const systemMsg = callArgs.messages.find((m: { role: string }) => m.role === 'system')
+    expect(systemMsg.content).toContain('VCs prioritize unit economics and market size above all else.')
+    expect(systemMsg.content).toContain('AUDIENCE RESEARCH BRIEFING')
+  })
+
+  it('uses max_tokens 3000 for feedback stage', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Give me feedback' }],
+      stage: 'feedback',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.max_tokens).toBe(3000)
+  })
+
+  it('uses max_tokens 2000 for non-feedback stages', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stage: 'present',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.max_tokens).toBe(2000)
+  })
+
+  it('includes setupContext in system prompt when provided', async () => {
+    const request = createRequest({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: {
+        topic: 'Series A pitch',
+        audience: 'Angel investors',
+        goal: 'Secure seed funding',
+      },
+      stage: 'define',
+    })
+    await POST(request)
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    const systemMsg = callArgs.messages.find((m: { role: string }) => m.role === 'system')
+    expect(systemMsg.content).toContain('Series A pitch')
+    expect(systemMsg.content).toContain('Angel investors')
+    expect(systemMsg.content).toContain('Secure seed funding')
+  })
+
+  it('returns 500 when OpenAI create rejects', async () => {
+    mockCreate.mockRejectedValue(new Error('OpenAI API failure'))
+
     const request = createRequest({
       messages: [{ role: 'user', content: 'Hello' }],
     })
     const response = await POST(request)
-    await readStream(response)
-
-    expect(incrementTrialUsage).toHaveBeenCalledWith('127.0.0.1')
-  })
-
-  it('includes trial_remaining event in stream for trial users', async () => {
-    const request = createRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    })
-    const response = await POST(request)
-    const streamContent = await readStream(response)
-
-    const lines = streamContent
-      .split('\n\n')
-      .filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
-      .map((l) => JSON.parse(l.slice(6)))
-
-    const trialEvent = lines.find(
-      (p) => p.trial_remaining !== undefined
-    )
-    expect(trialEvent).toBeDefined()
-  })
-
-  it('does not include trial_remaining event for authenticated users', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
-
-    const request = createRequest(
-      { messages: [{ role: 'user', content: 'Hello' }] },
-      { Authorization: 'Bearer some-token' }
-    )
-    const response = await POST(request)
-    const streamContent = await readStream(response)
-
-    const lines = streamContent
-      .split('\n\n')
-      .filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
-
-    const hasTrialEvent = lines.some((l) => l.includes('trial_remaining'))
-    expect(hasTrialEvent).toBe(false)
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.error).toContain('Failed to generate')
   })
 })

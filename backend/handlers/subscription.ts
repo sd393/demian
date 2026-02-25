@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/backend/auth'
 import { getUserPlan } from '@/backend/subscription'
 
@@ -9,15 +9,12 @@ export async function handleGetSubscription(request: NextRequest) {
   try {
     const { plan, subscriptionStatus } = await getUserPlan(auth.uid)
 
-    return new Response(
-      JSON.stringify({ plan, subscriptionStatus }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
+    return NextResponse.json({ plan, subscriptionStatus })
   } catch (error) {
     console.error('Subscription fetch error:', error)
-    return new Response(
-      JSON.stringify({ error: 'Failed to fetch subscription status.' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Failed to fetch subscription status.' },
+      { status: 500 }
     )
   }
 }

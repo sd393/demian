@@ -28,6 +28,22 @@ export const FOLLOW_UPS_LATER = [
   },
 ]
 
+export const FOLLOW_UPS_DEFINE = [
+  { label: "Present live", message: "__START_PRESENT__" },
+  { label: "Upload recording", message: "__START_UPLOAD_RECORDING__" },
+  { label: "Upload slides", message: "__START_UPLOAD_SLIDES__" },
+]
+
+export const FOLLOW_UPS_PRESENT = [
+  { label: "I'm done presenting", message: "__FINISH_PRESENTING__" },
+  { label: "Upload another clip", message: "__UPLOAD_ANOTHER__" },
+]
+
+export const FOLLOW_UPS_CHAT = [
+  { label: "Get feedback", message: "__FINISH_PRESENTING__" },
+  { label: "Upload slides", message: "__START_UPLOAD_SLIDES__" },
+]
+
 export const STEP_LABELS: Record<string, string> = {
   idle: "Ready",
   uploading: "Uploading to secure storage...",

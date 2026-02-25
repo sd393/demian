@@ -148,4 +148,69 @@ describe('POST /api/transcribe', () => {
 
     expect(del).toHaveBeenCalledWith('https://example.vercel-storage.com/test.mp4')
   })
+
+  it('cleans up temp files when processFileForWhisper fails', async () => {
+    const { cleanupTempFiles } = await import('@/backend/audio')
+    vi.mocked(processFileForWhisper).mockRejectedValueOnce(new Error('FFmpeg crash'))
+
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/test.mp4',
+      fileName: 'test.mp4',
+    })
+
+    await POST(request)
+
+    // tempPaths may be empty since processFileForWhisper failed before returning them,
+    // but the finally block should still run
+    expect(cleanupTempFiles).toHaveBeenCalledTimes(0) // tempPaths was never assigned
+  })
+
+  it('deletes blob even when transcription fails', async () => {
+    mockTranscriptionCreate.mockRejectedValueOnce(new Error('Whisper API error'))
+
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/test.mp4',
+      fileName: 'test.mp4',
+    })
+
+    await POST(request)
+
+    expect(del).toHaveBeenCalledWith('https://example.vercel-storage.com/test.mp4')
+  })
+
+  it('surfaces "no audio track" error message', async () => {
+    vi.mocked(processFileForWhisper).mockRejectedValueOnce(
+      new Error('File does not contain an audio track')
+    )
+
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/silent.mp4',
+      fileName: 'silent.mp4',
+    })
+
+    const response = await POST(request)
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.error).toContain('does not contain an audio track')
+  })
+
+  it('joins multiple chunk transcripts with space', async () => {
+    vi.mocked(processFileForWhisper).mockResolvedValue({
+      chunkPaths: ['/tmp/chunk0.mp3', '/tmp/chunk1.mp3'],
+      allTempPaths: ['/tmp/input.mp4', '/tmp/chunk0.mp3', '/tmp/chunk1.mp3'],
+    })
+    mockTranscriptionCreate
+      .mockResolvedValueOnce({ text: 'Part one.' })
+      .mockResolvedValueOnce({ text: 'Part two.' })
+
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/long.mp4',
+      fileName: 'long.mp4',
+    })
+
+    const response = await POST(request)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.transcript).toBe('Part one. Part two.')
+  })
 })

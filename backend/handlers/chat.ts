@@ -1,59 +1,41 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { openai } from '@/backend/openai'
 import { chatRequestSchema, sanitizeInput } from '@/backend/validation'
 import { buildSystemPrompt } from '@/backend/system-prompt'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
-import {
-  checkTrialLimit,
-  incrementTrialUsage,
-} from '@/backend/trial-limit'
-import { verifyAuth } from '@/backend/auth'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
+import { requireAuth } from '@/backend/auth'
 import { getUserPlan } from '@/backend/subscription'
 import { SSE_HEADERS } from '@/backend/request-utils'
 
 export async function handleChat(request: NextRequest) {
   const ip = getClientIp(request)
-  if (!checkRateLimit(ip, 10, 60_000).allowed) {
-    return new Response(
-      JSON.stringify({ error: 'Too many requests. Please wait a moment.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } }
+  if (!checkRateLimit(ip, RATE_LIMITS.chatIp.limit, RATE_LIMITS.chatIp.windowMs).allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
     )
   }
 
-  const authResult = await verifyAuth(request)
+  const authResult = await requireAuth(request)
 
-  // If verifyAuth returned a Response, it's a 401 error
+  // If requireAuth returned a Response, it's a 401 error
   if (authResult instanceof Response) {
     return authResult
   }
 
-  const isTrialUser = authResult === null
-
-  if (isTrialUser) {
-    const trial = checkTrialLimit(ip)
-    if (!trial.allowed) {
-      return new Response(
-        JSON.stringify({
-          error: 'You\'ve used all your free messages. Sign up to continue.',
-          code: 'trial_limit_reached',
-        }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } }
+  // Authenticated user — check plan-based limits
+  const { plan } = await getUserPlan(authResult.uid)
+  if (plan !== 'pro') {
+    // Free authenticated users: 20 messages per 24h
+    if (!checkRateLimit('free:' + authResult.uid, RATE_LIMITS.chatFreeUser.limit, RATE_LIMITS.chatFreeUser.windowMs).allowed) {
+      return NextResponse.json(
+        {
+          error: 'You\'ve reached your daily message limit. Upgrade to Pro for unlimited messages.',
+          code: 'free_limit_reached',
+        },
+        { status: 403 }
       )
-    }
-  } else {
-    // Authenticated user — check plan-based limits
-    const { plan } = await getUserPlan(authResult.uid)
-    if (plan !== 'pro') {
-      // Free authenticated users: 20 messages per 24h
-      if (!checkRateLimit('free:' + authResult.uid, 20, 86_400_000).allowed) {
-        return new Response(
-          JSON.stringify({
-            error: 'You\'ve reached your daily message limit. Upgrade to Pro for unlimited messages.',
-            code: 'free_limit_reached',
-          }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
     }
   }
 
@@ -62,15 +44,21 @@ export async function handleChat(request: NextRequest) {
 
     const parsed = chatRequestSchema.safeParse(body)
     if (!parsed.success) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid request format' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      return NextResponse.json(
+        { error: 'Invalid request format' },
+        { status: 400 }
       )
     }
 
-    const { messages, transcript, researchContext, slideContext, awaitingAudience } = parsed.data
+    const { messages, transcript, researchContext, slideContext, stage, setupContext } = parsed.data
 
-    const systemPrompt = buildSystemPrompt(transcript, researchContext, slideContext, awaitingAudience)
+    const systemPrompt = buildSystemPrompt({
+      stage,
+      transcript,
+      researchContext,
+      slideContext,
+      setupContext,
+    })
 
     const openaiMessages: Array<{
       role: 'system' | 'user' | 'assistant'
@@ -89,16 +77,8 @@ export async function handleChat(request: NextRequest) {
       messages: openaiMessages,
       stream: true,
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: stage === 'feedback' ? 3000 : 2000,
     })
-
-    if (isTrialUser) {
-      incrementTrialUsage(ip)
-    }
-
-    const trialRemaining = isTrialUser
-      ? checkTrialLimit(ip).remaining
-      : undefined
 
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
@@ -112,13 +92,6 @@ export async function handleChat(request: NextRequest) {
               )
             }
           }
-          if (trialRemaining !== undefined) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ trial_remaining: trialRemaining })}\n\n`
-              )
-            )
-          }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {
@@ -128,20 +101,12 @@ export async function handleChat(request: NextRequest) {
       },
     })
 
-    const headers: Record<string, string> = { ...SSE_HEADERS }
-
-    if (trialRemaining !== undefined) {
-      headers['X-Trial-Remaining'] = String(trialRemaining)
-    }
-
-    return new Response(readable, { headers })
+    return new Response(readable, { headers: SSE_HEADERS })
   } catch (error) {
     console.error('Chat error:', error)
-    return new Response(
-      JSON.stringify({
-        error: 'Failed to generate response. Please try again.',
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Failed to generate response. Please try again.' },
+      { status: 500 }
     )
   }
 }

@@ -4,11 +4,12 @@ import { del } from '@vercel/blob'
 import { openai } from '@/backend/openai'
 import { transcribeRequestSchema } from '@/backend/validation'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import { downloadToTmp, processFileForWhisper, cleanupTempFiles } from '@/backend/audio'
 
 export async function handleTranscribe(request: NextRequest) {
   const ip = getClientIp(request)
-  if (!checkRateLimit(ip, 5, 60_000).allowed) {
+  if (!checkRateLimit(ip, RATE_LIMITS.transcribe.limit, RATE_LIMITS.transcribe.windowMs).allowed) {
     return NextResponse.json(
       { error: 'Too many requests. Please wait before uploading again.' },
       { status: 429 }
@@ -80,8 +81,14 @@ export async function handleTranscribe(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Transcription error:', error)
 
+    // Surface user-friendly messages (e.g. "no audio track") instead of generic error
+    const message =
+      error instanceof Error && error.message.includes('does not contain an audio track')
+        ? error.message
+        : 'Failed to transcribe file. Please try again.'
+
     return NextResponse.json(
-      { error: 'Failed to transcribe file. Please try again.' },
+      { error: message },
       { status: 500 }
     )
   } finally {

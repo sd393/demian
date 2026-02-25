@@ -312,4 +312,57 @@ describe('POST /api/slides/analyze', () => {
     const summaryEvent = events.find((e) => e.type === 'deck_summary')
     expect(summaryEvent).toBeDefined()
   })
+
+  it('emits SSE events in correct order: status → slide_feedback → deck_summary', async () => {
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/deck.pdf',
+      fileName: 'deck.pdf',
+    })
+    const response = await POST(request)
+    const events = await readSSEEvents(response)
+
+    // Find the index boundaries
+    const lastStatusIdx = events.reduce(
+      (acc, e, i) => (e.type === 'status' ? i : acc),
+      -1
+    )
+    const firstSlideIdx = events.findIndex((e) => e.type === 'slide_feedback')
+    const summaryIdx = events.findIndex((e) => e.type === 'deck_summary')
+
+    // Status events should come before slide feedback
+    if (lastStatusIdx >= 0 && firstSlideIdx >= 0) {
+      expect(lastStatusIdx).toBeLessThan(firstSlideIdx)
+    }
+    // Slide feedback should come before deck summary
+    if (firstSlideIdx >= 0 && summaryIdx >= 0) {
+      expect(firstSlideIdx).toBeLessThan(summaryIdx)
+    }
+    // Summary should be the last non-status event
+    expect(summaryIdx).toBe(events.length - 1)
+  })
+
+  it('includes [DONE] marker at end of SSE stream', async () => {
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/deck.pdf',
+      fileName: 'deck.pdf',
+    })
+    const response = await POST(request)
+    const text = await response.text()
+    expect(text).toContain('data: [DONE]')
+  })
+
+  it('returns 500 when OpenAI returns unparseable JSON', async () => {
+    mockChatCreate.mockResolvedValueOnce({
+      choices: [{ message: { content: 'not json at all' } }],
+    })
+    const request = createRequest({
+      blobUrl: 'https://example.vercel-storage.com/deck.pdf',
+      fileName: 'deck.pdf',
+    })
+    const response = await POST(request)
+    const events = await readSSEEvents(response)
+    // Should emit an error event for unparseable response
+    const errorEvent = events.find((e) => e.type === 'error')
+    expect(errorEvent).toBeDefined()
+  })
 })

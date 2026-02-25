@@ -24,13 +24,8 @@ vi.mock('@/backend/rate-limit', () => ({
   getClientIp: vi.fn().mockReturnValue('127.0.0.1'),
 }))
 
-vi.mock('@/backend/trial-limit', () => ({
-  checkTrialLimit: vi.fn().mockReturnValue({ allowed: true, remaining: 3 }),
-  incrementTrialUsage: vi.fn(),
-}))
-
 vi.mock('@/backend/auth', () => ({
-  verifyAuth: vi.fn().mockResolvedValue(null),
+  requireAuth: vi.fn().mockResolvedValue({ uid: 'user123', email: 'test@test.com' }),
 }))
 
 vi.mock('@/backend/subscription', () => ({
@@ -40,8 +35,7 @@ vi.mock('@/backend/subscription', () => ({
 import { POST } from '@/app/api/chat/route'
 import { NextRequest } from 'next/server'
 import { checkRateLimit } from '@/backend/rate-limit'
-import { checkTrialLimit } from '@/backend/trial-limit'
-import { verifyAuth } from '@/backend/auth'
+import { requireAuth } from '@/backend/auth'
 import { getUserPlan } from '@/backend/subscription'
 
 function createRequest(
@@ -73,27 +67,31 @@ describe('POST /api/chat — subscription enforcement', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
-    vi.mocked(checkTrialLimit).mockReturnValue({ allowed: true, remaining: 3 })
-    vi.mocked(verifyAuth).mockResolvedValue(null)
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
     vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
     mockCreate.mockImplementation(() => createMockStream())
   })
 
-  it('allows trial user (no auth) with existing 4-message limit', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue(null)
-    vi.mocked(checkTrialLimit).mockReturnValue({ allowed: true, remaining: 3 })
+  it('returns 401 for unauthenticated requests', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
 
     const request = createRequest(validBody)
     const response = await POST(request)
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get('Content-Type')).toBe('text/event-stream')
-    expect(checkTrialLimit).toHaveBeenCalledWith('127.0.0.1')
+    expect(response.status).toBe(401)
+
+    const body = await response.json()
+    expect(body.error).toContain('Authentication required')
     expect(getUserPlan).not.toHaveBeenCalled()
   })
 
   it('allows authenticated Pro user with unlimited messages', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'pro-user', email: 'pro@test.com' })
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'pro-user', email: 'pro@test.com' })
     vi.mocked(getUserPlan).mockResolvedValue({ plan: 'pro', subscriptionStatus: 'active' })
 
     const request = createRequest(validBody)
@@ -111,7 +109,7 @@ describe('POST /api/chat — subscription enforcement', () => {
   })
 
   it('allows authenticated free user when under daily limit', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
     vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
 
@@ -130,7 +128,7 @@ describe('POST /api/chat — subscription enforcement', () => {
   })
 
   it('returns 403 with free_limit_reached when free user exceeds daily limit', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
     vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
     vi.mocked(checkRateLimit).mockImplementation((id: string) => {
       if (id.startsWith('free:')) return { allowed: false }
@@ -147,8 +145,8 @@ describe('POST /api/chat — subscription enforcement', () => {
     expect(body.error).toContain('daily message limit')
   })
 
-  it('returns 401 for invalid token and does not check trial or plan', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue(
+  it('returns 401 for invalid token and does not check plan', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(
       new Response(
         JSON.stringify({ error: 'Invalid or expired token' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -163,12 +161,11 @@ describe('POST /api/chat — subscription enforcement', () => {
     const body = await response.json()
     expect(body.error).toContain('Invalid or expired token')
 
-    expect(checkTrialLimit).not.toHaveBeenCalled()
     expect(getUserPlan).not.toHaveBeenCalled()
   })
 
   it('allows free user again after rate limit window resets', async () => {
-    vi.mocked(verifyAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
     vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
 

@@ -3,7 +3,11 @@ import {
   validateFile,
   validateSlideFile,
   chatRequestSchema,
+  researchRequestSchema,
   slideAnalyzeRequestSchema,
+  transcribeRequestSchema,
+  feedbackScoreRequestSchema,
+  blobDeleteRequestSchema,
   sanitizeInput,
 } from '@/backend/validation'
 
@@ -197,6 +201,131 @@ describe('chatRequestSchema', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('defaults stage to define when not provided', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.stage).toBe('define')
+    }
+  })
+
+  it('accepts valid stage values', () => {
+    for (const stage of ['define', 'present', 'feedback', 'followup']) {
+      const result = chatRequestSchema.safeParse({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stage,
+      })
+      expect(result.success).toBe(true)
+    }
+  })
+
+  it('rejects invalid stage values', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stage: 'invalid',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts setupContext with all fields', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: {
+        topic: 'Series A pitch',
+        audience: 'VC investors',
+        goal: 'secure funding',
+        additionalContext: 'Focus on traction metrics',
+      },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.setupContext?.topic).toBe('Series A pitch')
+      expect(result.data.setupContext?.audience).toBe('VC investors')
+    }
+  })
+
+  it('accepts setupContext with partial fields', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { topic: 'My talk' },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects setupContext with topic exceeding 500 chars', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { topic: 'x'.repeat(501) },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects setupContext with additionalContext exceeding 2000 chars', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { additionalContext: 'x'.repeat(2001) },
+    })
+    expect(result.success).toBe(false)
+  })
+
+})
+
+describe('researchRequestSchema', () => {
+  it('accepts request with only audience description', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'VC investors at Series A stage',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts request with transcript and audience', () => {
+    const result = researchRequestSchema.safeParse({
+      transcript: 'Hello everyone, today I will present...',
+      audienceDescription: 'VC investors',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts request with topic and audience', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'VC investors',
+      topic: 'Series A fundraising',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects request without audience description', () => {
+    const result = researchRequestSchema.safeParse({
+      transcript: 'some transcript',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects empty audience description', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: '',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects transcript exceeding max length', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'test',
+      transcript: 'x'.repeat(100_001),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects topic exceeding max length', () => {
+    const result = researchRequestSchema.safeParse({
+      audienceDescription: 'test',
+      topic: 'x'.repeat(2_001),
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('sanitizeInput', () => {
@@ -331,5 +460,177 @@ describe('slideAnalyzeRequestSchema', () => {
       audienceContext: 'x'.repeat(2001),
     })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('transcribeRequestSchema', () => {
+  it('accepts a valid request', () => {
+    const result = transcribeRequestSchema.safeParse({
+      blobUrl: 'https://example.vercel-storage.com/test.mp4',
+      fileName: 'test.mp4',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects missing blobUrl', () => {
+    const result = transcribeRequestSchema.safeParse({ fileName: 'test.mp4' })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects invalid blobUrl', () => {
+    const result = transcribeRequestSchema.safeParse({
+      blobUrl: 'not-a-url',
+      fileName: 'test.mp4',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects empty fileName', () => {
+    const result = transcribeRequestSchema.safeParse({
+      blobUrl: 'https://example.com/test.mp4',
+      fileName: '',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects fileName exceeding 255 chars', () => {
+    const result = transcribeRequestSchema.safeParse({
+      blobUrl: 'https://example.com/test.mp4',
+      fileName: 'a'.repeat(256),
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('feedbackScoreRequestSchema', () => {
+  const VALID = {
+    sessionId: 'sess-1',
+    messages: [{ role: 'user', content: 'Hello' }],
+    setup: { topic: 'My pitch', audience: 'VCs', goal: 'Get funded' },
+  }
+
+  it('accepts a valid request', () => {
+    const result = feedbackScoreRequestSchema.safeParse(VALID)
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects missing sessionId', () => {
+    const { sessionId: _, ...rest } = VALID
+    const result = feedbackScoreRequestSchema.safeParse(rest)
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects empty sessionId', () => {
+    const result = feedbackScoreRequestSchema.safeParse({ ...VALID, sessionId: '' })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects missing setup', () => {
+    const { setup: _, ...rest } = VALID
+    const result = feedbackScoreRequestSchema.safeParse(rest)
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts optional transcript and researchContext', () => {
+    const result = feedbackScoreRequestSchema.safeParse({
+      ...VALID,
+      transcript: 'Hello everyone...',
+      researchContext: 'The audience prefers data-driven arguments.',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects transcript exceeding max length', () => {
+    const result = feedbackScoreRequestSchema.safeParse({
+      ...VALID,
+      transcript: 'x'.repeat(100_001),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects messages exceeding max count', () => {
+    const messages = Array.from({ length: 201 }, () => ({
+      role: 'user',
+      content: 'msg',
+    }))
+    const result = feedbackScoreRequestSchema.safeParse({ ...VALID, messages })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('blobDeleteRequestSchema', () => {
+  it('accepts valid array of URLs', () => {
+    const result = blobDeleteRequestSchema.safeParse({
+      urls: ['https://example.com/a', 'https://example.com/b'],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects empty urls array', () => {
+    const result = blobDeleteRequestSchema.safeParse({ urls: [] })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects invalid URL in array', () => {
+    const result = blobDeleteRequestSchema.safeParse({
+      urls: ['https://example.com/a', 'not-a-url'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects more than 50 URLs', () => {
+    const urls = Array.from({ length: 51 }, (_, i) => `https://example.com/${i}`)
+    const result = blobDeleteRequestSchema.safeParse({ urls })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('validateFile boundary values', () => {
+  it('accepts file at 1 byte', () => {
+    const result = validateFile({
+      name: 'tiny.mp3',
+      type: 'audio/mpeg',
+      size: 1,
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects file at 500MB + 1 byte', () => {
+    const result = validateFile({
+      name: 'huge.mp4',
+      type: 'video/mp4',
+      size: 500 * 1024 * 1024 + 1,
+    })
+    expect(result.valid).toBe(false)
+  })
+})
+
+describe('validateSlideFile boundary values', () => {
+  it('accepts file at 1 byte', () => {
+    const result = validateSlideFile({
+      name: 'tiny.pdf',
+      type: 'application/pdf',
+      size: 1,
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects file at 50MB + 1 byte', () => {
+    const result = validateSlideFile({
+      name: 'huge.pdf',
+      type: 'application/pdf',
+      size: 50 * 1024 * 1024 + 1,
+    })
+    expect(result.valid).toBe(false)
+  })
+})
+
+describe('sanitizeInput edge cases', () => {
+  it('preserves newlines', () => {
+    expect(sanitizeInput('hello\nworld')).toBe('hello\nworld')
+  })
+
+  it('handles unicode characters', () => {
+    expect(sanitizeInput('  café résumé  ')).toBe('café résumé')
   })
 })

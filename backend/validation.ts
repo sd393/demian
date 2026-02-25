@@ -49,12 +49,21 @@ export const chatRequestSchema = z.object({
   transcript: z.string().max(100_000).optional(),
   researchContext: z.string().max(20_000).optional(),
   slideContext: z.string().max(30_000).optional(),
-  awaitingAudience: z.boolean().optional(),
+  stage: z.enum(['define', 'present', 'feedback', 'followup']).default('define'),
+  setupContext: z.object({
+    topic: z.string().max(500).optional(),
+    audience: z.string().max(500).optional(),
+    goal: z.string().max(500).optional(),
+    additionalContext: z.string().max(2000).optional(),
+  }).optional(),
 })
 
 export const researchRequestSchema = z.object({
-  transcript: z.string().min(1).max(100_000),
+  transcript: z.string().max(100_000).optional(),
   audienceDescription: z.string().min(1).max(10_000),
+  topic: z.string().max(2_000).optional(),
+  goal: z.string().max(500).optional(),
+  additionalContext: z.string().max(2_000).optional(),
 })
 
 export const transcribeRequestSchema = z.object({
@@ -100,6 +109,27 @@ export const slideAnalyzeRequestSchema = z.object({
 
 export const blobDeleteRequestSchema = z.object({
   urls: z.array(z.string().url()).min(1).max(50),
+})
+
+export const feedbackScoreRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  transcript: z.string().max(100_000).optional(),
+  setup: z.object({
+    topic: z.string().max(500),
+    audience: z.string().max(500),
+    goal: z.string().max(500),
+    additionalContext: z.string().max(2000).optional(),
+  }),
+  messages: z
+    .array(
+      z.object({
+        role: z.string(),
+        content: z.string(),
+      })
+    )
+    .max(200),
+  researchContext: z.string().max(20_000).optional(),
+  slideContext: z.string().max(30_000).optional(),
 })
 
 export function sanitizeInput(text: string): string {

@@ -1,6 +1,7 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/backend/auth'
 import { checkRateLimit } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import { stripe } from '@/backend/stripe'
 import { createOrGetStripeCustomer, getUserPlan } from '@/backend/subscription'
 import { getOrigin } from '@/backend/request-utils'
@@ -10,10 +11,10 @@ export async function handleCheckout(request: NextRequest) {
   if (auth instanceof Response) return auth
 
   // Rate limit: 3 checkout attempts per 60s per user
-  if (!checkRateLimit('checkout:' + auth.uid, 3, 60_000).allowed) {
-    return new Response(
-      JSON.stringify({ error: 'Too many requests. Please wait a moment.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } }
+  if (!checkRateLimit('checkout:' + auth.uid, RATE_LIMITS.checkout.limit, RATE_LIMITS.checkout.windowMs).allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
     )
   }
 
@@ -26,18 +27,15 @@ export async function handleCheckout(request: NextRequest) {
         customer: customerId,
         return_url: `${getOrigin(request)}/account`,
       })
-      return new Response(
-        JSON.stringify({ url: portalSession.url }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
+      return NextResponse.json({ url: portalSession.url })
     }
 
     const priceId = process.env.STRIPE_PRO_PRICE_ID
     if (!priceId) {
       console.error('STRIPE_PRO_PRICE_ID is not configured')
-      return new Response(
-        JSON.stringify({ error: 'Payment is not configured. Please try again later.' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      return NextResponse.json(
+        { error: 'Payment is not configured. Please try again later.' },
+        { status: 500 }
       )
     }
 
@@ -56,15 +54,12 @@ export async function handleCheckout(request: NextRequest) {
       metadata: { firebaseUid: auth.uid },
     })
 
-    return new Response(
-      JSON.stringify({ url: session.url }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
+    return NextResponse.json({ url: session.url })
   } catch (error) {
     console.error('Checkout error:', error)
-    return new Response(
-      JSON.stringify({ error: 'Failed to create checkout session. Please try again.' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Failed to create checkout session. Please try again.' },
+      { status: 500 }
     )
   }
 }

@@ -11,6 +11,11 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 const WHISPER_MAX_SIZE = 25 * 1024 * 1024 // 25MB
 const MAX_CHUNK_DURATION = 1400 // seconds — gpt-4o-mini-transcribe limit is 1500s
 
+/** Formats Whisper accepts natively — no FFmpeg conversion needed */
+const WHISPER_NATIVE_FORMATS = new Set([
+  '.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm',
+])
+
 export function tempPath(ext: string, prefix = 'vera'): string {
   const id = crypto.randomBytes(8).toString('hex')
   return path.join(os.tmpdir(), `${prefix}-${id}${ext}`)
@@ -39,15 +44,31 @@ export function extractAndCompressAudio(
 }
 
 /**
- * Get the duration of an audio file in seconds.
+ * Probe a file and return its ffprobe metadata.
  */
-function getAudioDuration(filePath: string): Promise<number> {
+function probeFile(filePath: string): Promise<ffmpeg.FfprobeData> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => {
       if (err) return reject(err)
-      resolve(metadata.format.duration ?? 0)
+      resolve(metadata)
     })
   })
+}
+
+/**
+ * Check whether a file contains at least one audio stream.
+ */
+async function hasAudioStream(filePath: string): Promise<boolean> {
+  const metadata = await probeFile(filePath)
+  return metadata.streams.some((s) => s.codec_type === 'audio')
+}
+
+/**
+ * Get the duration of an audio file in seconds.
+ */
+async function getAudioDuration(filePath: string): Promise<number> {
+  const metadata = await probeFile(filePath)
+  return metadata.format.duration ?? 0
 }
 
 /**
@@ -60,9 +81,7 @@ export async function splitAudioIfNeeded(
   maxSizeBytes: number = WHISPER_MAX_SIZE
 ): Promise<string[]> {
   const stat = statSync(filePath)
-  // Estimate duration from file size — the input is always our 64kbps MP3,
-  // so duration ≈ fileSize / 8000. This avoids needing ffprobe on Vercel.
-  const estimatedDuration = stat.size / 8000
+  const estimatedDuration = await getAudioDuration(filePath)
 
   const sizeChunks = Math.ceil(stat.size / maxSizeBytes)
   const durationChunks = Math.ceil(estimatedDuration / MAX_CHUNK_DURATION)
@@ -123,8 +142,8 @@ export async function downloadToTmp(url: string, fileName: string): Promise<stri
     throw new Error(`Blob does not exist in store: ${url}`)
   }
 
-  const MAX_RETRIES = 5
-  const INITIAL_DELAY_MS = 1000
+  const MAX_RETRIES = 3
+  const INITIAL_DELAY_MS = 500
 
   let lastStatus = 0
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -168,6 +187,22 @@ export async function processFileForWhisper(inputPath: string): Promise<{
   chunkPaths: string[]
   allTempPaths: string[]
 }> {
+  const ext = path.extname(inputPath).toLowerCase()
+  const stat = statSync(inputPath)
+
+  // Small files in a Whisper-native format can skip FFmpeg entirely
+  if (stat.size <= WHISPER_MAX_SIZE && WHISPER_NATIVE_FORMATS.has(ext)) {
+    console.log(`[processFileForWhisper] Skipping FFmpeg — native format (${ext}, ${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+    return { chunkPaths: [inputPath], allTempPaths: [inputPath] }
+  }
+
+  // Verify the file actually contains audio before attempting extraction
+  if (!(await hasAudioStream(inputPath))) {
+    throw new Error(
+      'This file does not contain an audio track. Please upload a file with audible speech.'
+    )
+  }
+
   const compressedPath = tempPath('.mp3')
   const allTempPaths = [inputPath, compressedPath]
 

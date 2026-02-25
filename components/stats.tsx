@@ -79,8 +79,9 @@ function StatItem({
         {/* Animated accent bar */}
         <div className="mt-4 h-px w-full overflow-hidden rounded-full bg-border/30">
           <div
-            className="h-full rounded-full transition-all duration-[1.8s] ease-out"
+            className="h-full rounded-full transition-all ease-out"
             style={{
+              transitionDuration: "1.8s",
               width: inView ? `${stat.barPercent}%` : "0%",
               background: stat.accent,
               opacity: 0.5,

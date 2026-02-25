@@ -1,7 +1,6 @@
 "use client"
 
 import React, { useState, useRef, useEffect, type FormEvent } from "react"
-import { useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
 import {
   Send,
@@ -76,17 +75,13 @@ const SUGGESTIONS = [
 
 interface ChatInterfaceProps {
   authToken?: string | null
-  isTrialMode?: boolean
   onChatStart?: () => void
 }
 
 export function ChatInterface({
   authToken,
-  isTrialMode,
   onChatStart,
 }: ChatInterfaceProps) {
-  const router = useRouter()
-
   const {
     messages,
     researchMeta,
@@ -95,8 +90,6 @@ export function ChatInterface({
     isResearching,
     isStreaming,
     error,
-    trialMessagesRemaining,
-    trialLimitReached,
     freeLimitReached,
     sendMessage,
     uploadFile,
@@ -118,7 +111,6 @@ export function ChatInterface({
   const recorder = useRecorder()
 
   const [input, setInput] = useState("")
-  const [showTrialDialog, setShowTrialDialog] = useState(false)
   const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
   const [inputPlaceholder, setInputPlaceholder] = useState(
     "Describe your audience or ask for feedback..."
@@ -158,7 +150,7 @@ export function ChatInterface({
   }, [])
 
   const isBusy = isCompressing || isTranscribing || isResearching || isStreaming
-  const isInputDisabled = isBusy || trialLimitReached || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording
+  const isInputDisabled = isBusy || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording
   const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
 
   useEffect(() => {
@@ -177,7 +169,7 @@ export function ChatInterface({
     !isBusy &&
     !isEmptyState &&
     lastMessage?.role === "assistant" &&
-    lastMessage.content.length > 0
+    (lastMessage.content?.length ?? 0) > 0
   const followUps = exchangeCount <= 1 ? FOLLOW_UPS_EARLY : FOLLOW_UPS_LATER
 
   useEffect(() => {
@@ -185,10 +177,6 @@ export function ChatInterface({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isTranscribing, isStreaming])
-
-  useEffect(() => {
-    if (trialLimitReached) setShowTrialDialog(true)
-  }, [trialLimitReached])
 
   useEffect(() => {
     if (freeLimitReached) setShowFreeLimitDialog(true)
@@ -248,10 +236,6 @@ export function ChatInterface({
   }
 
   async function handleStartRecording() {
-    if (isTrialMode) {
-      router.push("/login")
-      return
-    }
     const err = await recorder.startRecording()
     if (err) {
       const messages: Record<string, string> = {
@@ -270,10 +254,6 @@ export function ChatInterface({
   }
 
   function handleSuggestionClick(s: (typeof SUGGESTIONS)[number]) {
-    if (isTrialMode) {
-      router.push("/login")
-      return
-    }
     if (s.action === "upload-pdf") {
       pdfInputRef.current?.click()
     } else if (s.action === "upload") {
@@ -340,7 +320,7 @@ export function ChatInterface({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isBusy || trialLimitReached || freeLimitReached || slideReview.isAnalyzing}
+                disabled={isBusy || freeLimitReached || slideReview.isAnalyzing}
                 className="absolute left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                 aria-label="Attach a file"
               >
@@ -363,7 +343,7 @@ export function ChatInterface({
               <button
                 type="button"
                 onClick={handleStartRecording}
-                disabled={isBusy || trialLimitReached || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
+                disabled={isBusy || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
                 className="absolute right-11 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
                 aria-label="Start recording"
               >
@@ -621,11 +601,6 @@ export function ChatInterface({
                     Describe your audience and Vera will simulate them, giving you
                     feedback that feels human.
                   </p>
-                  {isTrialMode && (
-                    <p className="mt-2 text-xs text-primary sm:text-sm">
-                      Try 4 free messages — no account needed
-                    </p>
-                  )}
                 </FadeIn>
 
                 <FadeIn delay={0.25}>
@@ -665,7 +640,7 @@ export function ChatInterface({
                           <button
                             type="button"
                             onClick={handleStartRecording}
-                            disabled={isBusy || trialLimitReached || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
+                            disabled={isBusy || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
                             className="absolute right-11 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
                             aria-label="Start recording"
                           >
@@ -741,15 +716,6 @@ export function ChatInterface({
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      {isTrialMode &&
-                        trialMessagesRemaining !== null &&
-                        trialMessagesRemaining > 0 && (
-                          <span className="font-medium text-primary">
-                            {trialMessagesRemaining} free{" "}
-                            {trialMessagesRemaining === 1 ? "message" : "messages"}{" "}
-                            left
-                          </span>
-                        )}
                       {hasAudioUpload && (
                         <span className="flex items-center gap-1.5">
                           <FileAudio className="h-3 w-3" />
@@ -851,26 +817,6 @@ export function ChatInterface({
           </div>
         </div>
       )}
-
-      {/* Trial limit dialog */}
-      <Dialog open={showTrialDialog} onOpenChange={setShowTrialDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>You&apos;ve used your free messages</DialogTitle>
-            <DialogDescription>
-              Create a free account to keep coaching with Vera.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-            <a
-              href="/login"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Sign in
-            </a>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Free plan limit dialog */}
       <Dialog open={showFreeLimitDialog} onOpenChange={setShowFreeLimitDialog}>

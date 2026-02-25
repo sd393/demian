@@ -1,7 +1,8 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { openai } from '@/backend/openai'
 import { slideAnalyzeRequestSchema } from '@/backend/validation'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import {
   extractSlideTexts,
   type SlideFeedback,
@@ -22,17 +23,17 @@ export async function handleSlidesAnalyze(request: NextRequest) {
   // Auth required — no trial mode for slides (Vision API cost)
   const authHeader = request.headers.get('authorization')
   if (!authHeader) {
-    return new Response(
-      JSON.stringify({ error: 'Sign in to use slide deck review.' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Sign in to use slide deck review.' },
+      { status: 401 }
     )
   }
 
   const ip = getClientIp(request)
-  if (!checkRateLimit(ip, 5, 60_000).allowed) {
-    return new Response(
-      JSON.stringify({ error: 'Too many requests. Please wait a moment.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } }
+  if (!checkRateLimit(ip, RATE_LIMITS.slidesAnalyze.limit, RATE_LIMITS.slidesAnalyze.windowMs).allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
     )
   }
 
@@ -40,17 +41,17 @@ export async function handleSlidesAnalyze(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid JSON body.' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Invalid JSON body.' },
+      { status: 400 }
     )
   }
 
   const parsed = slideAnalyzeRequestSchema.safeParse(body)
   if (!parsed.success) {
-    return new Response(
-      JSON.stringify({ error: 'Invalid request. Provide blobUrl and fileName.' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return NextResponse.json(
+      { error: 'Invalid request. Provide blobUrl and fileName.' },
+      { status: 400 }
     )
   }
 
@@ -107,7 +108,11 @@ export async function handleSlidesAnalyze(request: NextRequest) {
           ? result.slides
           : []
         for (const slide of slides) {
-          enqueue(sseEvent('slide_feedback', slide))
+          enqueue(sseEvent('slide_feedback', {
+            ...slide,
+            strengths: Array.isArray(slide.strengths) ? slide.strengths : [],
+            improvements: Array.isArray(slide.improvements) ? slide.improvements : [],
+          }))
         }
 
         // 5. Emit deck summary

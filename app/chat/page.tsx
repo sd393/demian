@@ -1,16 +1,41 @@
 "use client"
 
-import { Suspense, useState, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
+import { Suspense, useState, useEffect, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { Clock } from "lucide-react"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
 import { ChatNavbar } from "@/components/chat-navbar"
 import { CoachingInterface } from "@/components/coaching-interface"
+import { SessionHistorySidebar } from "@/components/session-history-sidebar"
+import { useSessionHistory } from "@/hooks/use-session-history"
 
 function ChatContent() {
+  const router = useRouter()
   const { user, loading, plan, refreshSubscription } = useAuth()
   const [idToken, setIdToken] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const searchParams = useSearchParams()
+  const getAuthToken = useCallback(async () => {
+    if (!user) throw new Error("Not authenticated")
+    return user.getIdToken()
+  }, [user])
+
+  const { sessions, loading: sessionsLoading, error: sessionsError, refresh: refreshSessions, removeSession } =
+    useSessionHistory({ userId: user?.uid ?? null, getAuthToken })
+
+  const handleHistoryToggle = useCallback(() => {
+    if (!historyOpen) refreshSessions()
+    setHistoryOpen((prev) => !prev)
+  }, [historyOpen, refreshSessions])
+
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    try {
+      await removeSession(sessionId)
+    } catch {
+      toast.error("Failed to delete presentation")
+    }
+  }, [removeSession])
 
   useEffect(() => {
     if (user) {
@@ -19,6 +44,13 @@ function ChatContent() {
       setIdToken(null)
     }
   }, [user])
+
+  // Redirect unauthenticated users to login
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login")
+    }
+  }, [user, loading, router])
 
   // Handle post-checkout success: verify the session server-side, then refresh local state
   useEffect(() => {
@@ -55,7 +87,7 @@ function ChatContent() {
     verifyCheckout()
   }, [searchParams, refreshSubscription, user, loading])
 
-  if (loading || (user && !idToken)) {
+  if (loading || !user || (user && !idToken)) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -63,15 +95,34 @@ function ChatContent() {
     )
   }
 
-  const isTrialMode = !user
-
   return (
     <div className="flex h-screen flex-col">
-      <ChatNavbar isTrialMode={isTrialMode} plan={plan} />
-      <CoachingInterface
-        authToken={isTrialMode ? null : idToken}
-        isTrialMode={isTrialMode}
-      />
+      <ChatNavbar plan={plan} />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <SessionHistorySidebar
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          sessions={sessions}
+          loading={sessionsLoading}
+          error={sessionsError}
+          onDelete={handleDeleteSession}
+        />
+        <CoachingInterface authToken={idToken} />
+      </div>
+      {/* Floating history button — bottom left */}
+      <button
+        type="button"
+        onClick={handleHistoryToggle}
+        className={`fixed bottom-6 left-6 z-30 flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-sm transition-all active:scale-[0.98] ${
+          historyOpen
+            ? "border-primary/20 bg-primary/[0.03] text-foreground"
+            : "border-border/40 bg-background/90 text-muted-foreground/50 hover:border-primary/20 hover:bg-primary/[0.03] hover:text-primary/70"
+        }`}
+        aria-label="Session history"
+        aria-pressed={historyOpen}
+      >
+        <Clock className="h-4 w-4" />
+      </button>
     </div>
   )
 }

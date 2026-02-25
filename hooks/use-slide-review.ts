@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { upload } from '@vercel/blob/client'
 import { validateSlideFile } from '@/backend/validation'
+import { buildAuthHeaders } from '@/lib/api-utils'
+import { parseSSEStream } from '@/lib/sse-utils'
 import type { SlideFeedback, DeckFeedback } from '@/backend/slides'
 
 export type { SlideFeedback, DeckFeedback }
@@ -41,11 +43,14 @@ export interface UseSlideReviewReturn {
   activeReviewKey: string | null
   displayedKey: string | null
   isAnalyzing: boolean
+  blobUrl: string | null
+  fileName: string | null
   uploadAndAnalyze: (file: File, audienceContext?: string, reviewKey?: string) => Promise<void>
   reanalyze: (audienceContext: string) => Promise<void>
   openPanel: () => void
   closePanel: () => void
   openReview: (key: string) => void
+  markBlobPersisted: (url: string) => void
   reset: () => void
 }
 
@@ -66,6 +71,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
   const [activeReviewKey, setActiveReviewKey] = useState<string | null>(null)
   const [displayedKey, setDisplayedKey] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
 
   const storedBlobUrlRef = useRef<string | null>(null)
   const storedFileNameRef = useRef<string | null>(null)
@@ -78,6 +85,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
   const runningProgressRef = useRef<AnalysisProgress>(INITIAL_PROGRESS)
   const runningThumbnailsRef = useRef<Record<number, string>>({})
   const sessionBlobUrlsRef = useRef<Set<string>>(new Set())
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const openPanel = useCallback(() => setPanelOpen(true), [])
   const closePanel = useCallback(() => setPanelOpen(false), [])
@@ -115,6 +123,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
       storedBlobUrlRef.current = snapshot.blobUrl
       storedFileNameRef.current = snapshot.fileName
+      setBlobUrl(snapshot.blobUrl)
+      setFileName(snapshot.fileName)
       setError(null)
       setPanelOpen(true)
       return prev
@@ -122,6 +132,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
   }, [])
 
   const reset = useCallback(() => {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
     setSlideFeedbacks([])
     setDeckSummary(null)
     setProgress(INITIAL_PROGRESS)
@@ -130,6 +142,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     setReviews({})
     storedBlobUrlRef.current = null
     storedFileNameRef.current = null
+    setBlobUrl(null)
+    setFileName(null)
     activeReviewKeyRef.current = null
     displayedKeyRef.current = null
     runningProgressRef.current = INITIAL_PROGRESS
@@ -142,6 +156,11 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
   const runAnalysis = useCallback(
     async (blobUrl: string, fileName: string, audienceContext?: string, reviewKey?: string) => {
+      // Abort any in-flight analysis before starting a new one
+      abortControllerRef.current?.abort()
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
       const initialProgress: AnalysisProgress = { step: 'downloading', slidesCompleted: 0, slidesTotal: 0 }
       setSlideFeedbacks([])
       setDeckSummary(null)
@@ -167,10 +186,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
       const response = await fetch('/api/slides/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
-        },
+        headers: buildAuthHeaders(authToken),
+        signal: controller.signal,
         body: JSON.stringify({ blobUrl, fileName, audienceContext }),
       })
 
@@ -182,42 +199,13 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
       const reader = response.body?.getReader()
       if (!reader) throw new Error('No response stream available')
 
-      const decoder = new TextDecoder()
-      let buffer = ''
       const localFeedbacks: SlideFeedback[] = []
       let localDeckSummary: DeckFeedback | null = null
-      // Local mutable copy so we can compute incremental progress without
-      // re-reading the ref on every event
       let currentProgress: AnalysisProgress = initialProgress
+      let streamError: Error | null = null
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const payload = line.slice(6).trim()
-
-          if (payload === '[DONE]') {
-            currentProgress = { ...currentProgress, step: 'done' }
-            runningProgressRef.current = currentProgress
-            if (!reviewKey || displayedKeyRef.current === reviewKey) {
-              setProgress(currentProgress)
-            }
-            continue
-          }
-
-          let event: { type: string; data: unknown }
-          try {
-            event = JSON.parse(payload)
-          } catch {
-            continue
-          }
-
+      await parseSSEStream<{ type: string; data: unknown }>(reader, {
+        onEvent: (event) => {
           if (event.type === 'status') {
             const d = event.data as { step: string; total?: number; completed?: number }
             currentProgress = {
@@ -263,10 +251,19 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
             }
           } else if (event.type === 'error') {
             const d = event.data as { message: string }
-            throw new Error(d.message)
+            streamError = new Error(d.message)
           }
-        }
-      }
+        },
+        onDone: () => {
+          currentProgress = { ...currentProgress, step: 'done' }
+          runningProgressRef.current = currentProgress
+          if (!reviewKey || displayedKeyRef.current === reviewKey) {
+            setProgress(currentProgress)
+          }
+        },
+      }, '\n')
+
+      if (streamError) throw streamError
 
       if (reviewKey) {
         setReviews((prev) => ({
@@ -303,6 +300,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
       setError(null)
       storedBlobUrlRef.current = null
       storedFileNameRef.current = null
+      setBlobUrl(null)
+      setFileName(null)
       runningThumbnailsRef.current = {}
       if (reviewKey) {
         activeReviewKeyRef.current = reviewKey
@@ -322,6 +321,8 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
 
         storedBlobUrlRef.current = blob.url
         storedFileNameRef.current = file.name
+        setBlobUrl(blob.url)
+        setFileName(file.name)
         sessionBlobUrlsRef.current.add(blob.url)
 
         const thumbnailPromise = import('@/lib/pdf-thumbnails')
@@ -359,6 +360,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
           })
         }
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
         const message =
           err instanceof Error ? err.message : 'An unexpected error occurred'
         setError(message)
@@ -381,6 +383,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
       try {
         await runAnalysis(blobUrl, fileName, audienceContext, displayedKeyRef.current ?? undefined)
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
         const message =
           err instanceof Error ? err.message : 'An unexpected error occurred'
         setError(message)
@@ -390,6 +393,10 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     },
     [runAnalysis]
   )
+
+  const markBlobPersisted = useCallback((url: string) => {
+    sessionBlobUrlsRef.current.delete(url)
+  }, [])
 
   const deleteBlobUrls = useCallback((urls: string[]) => {
     if (urls.length === 0) return
@@ -401,7 +408,7 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     if (!sent) {
       fetch('/api/blob/delete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders(),
         body: payload,
         keepalive: true,
       }).catch(() => {})
@@ -431,11 +438,14 @@ export function useSlideReview(authToken?: string | null): UseSlideReviewReturn 
     activeReviewKey,
     displayedKey,
     isAnalyzing,
+    blobUrl,
+    fileName,
     uploadAndAnalyze,
     reanalyze,
     openPanel,
     closePanel,
     openReview,
+    markBlobPersisted,
     reset,
   }
 }

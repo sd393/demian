@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { del } from '@vercel/blob'
 import { blobDeleteRequestSchema } from '@/backend/validation'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
+import { RATE_LIMITS } from '@/backend/rate-limit-config'
 
 export async function handleBlobDelete(request: NextRequest) {
   const ip = getClientIp(request)
-  if (!checkRateLimit(ip, 10, 60_000).allowed) {
+  if (!checkRateLimit(ip, RATE_LIMITS.blobDelete.limit, RATE_LIMITS.blobDelete.windowMs).allowed) {
     return NextResponse.json(
       { error: 'Too many requests. Please wait before trying again.' },
       { status: 429 }
