@@ -177,7 +177,7 @@ export function ChatInterface({
     !isBusy &&
     !isEmptyState &&
     lastMessage?.role === "assistant" &&
-    lastMessage.content.length > 0
+    (lastMessage.content?.length ?? 0) > 0
   const followUps = exchangeCount <= 1 ? FOLLOW_UPS_EARLY : FOLLOW_UPS_LATER
 
   useEffect(() => {

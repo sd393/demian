@@ -228,9 +228,17 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
   const messagesRef = useRef(messages)
   messagesRef.current = messages
 
+  // Debug: log when a message has undefined content (race condition trace)
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      const bad = messages.find(m => m.content === undefined)
+      if (bad) console.warn('[DEBUG] Message with undefined content:', bad)
+    }
+  }, [messages])
+
   function fetchPulseLabels(overrideMessages?: { role: string; content: string }[]) {
     const recent = overrideMessages ?? messagesRef.current
-      .filter(m => m.content.trim())
+      .filter(m => m.content?.trim())
       .slice(-4)
       .map(m => ({ role: m.role as "user" | "assistant", content: m.content }))
     if (recent.length === 0) return
@@ -346,7 +354,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
 
   const exchangeCount = messages.filter((m) => m.role === "user").length
   const lastMessage = messages[messages.length - 1]
-  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && lastMessage.content.length > 0 && stage !== 'feedback'
+  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && (lastMessage.content?.length ?? 0) > 0 && stage !== 'feedback'
 
   const followUps = stage === 'define' ? FOLLOW_UPS_DEFINE
     : stage === 'present' ? FOLLOW_UPS_PRESENT
@@ -402,7 +410,7 @@ export function CoachingInterface({ authToken, isTrialMode, onChatStart }: Coach
     }
 
     const strippedMessages = messages
-      .filter((m) => m.content.trim())
+      .filter((m) => m.content?.trim())
       .map((m) => ({ role: m.role, content: m.content }))
 
     const slideReviewPayload = slideReview.deckSummary
