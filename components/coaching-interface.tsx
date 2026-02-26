@@ -13,6 +13,7 @@ import { saveSession, updateSessionScores, type SessionScores, type SessionScore
 import { useChat, type Attachment } from "@/hooks/use-chat"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
+import { useContextFile } from "@/hooks/use-context-file"
 import { formatSlideContextForChat } from "@/lib/format-utils"
 import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER, FOLLOW_UPS_DEFINE, FOLLOW_UPS_PRESENT, FOLLOW_UPS_CHAT } from "@/lib/constants"
 import { isValidFaceEmotion, type FaceState, type FaceEmotion } from "@/components/audience-face"
@@ -22,14 +23,6 @@ import { ChatView } from "@/components/chat-view"
 import { PresentationOverlay } from "@/components/presentation-overlay"
 
 const SlidePanel = dynamic(() => import("@/components/slide-panel").then(m => ({ default: m.SlidePanel })))
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
 
 /* ── Thinking labels ── */
 
@@ -78,7 +71,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
 
   const {
     messages, researchMeta, researchSearchTerms, researchContext, isCompressing, isTranscribing, isResearching, isStreaming,
-    error, freeLimitReached,
+    error,
     stage, transcript, setupContext: chatSetupContext, slideContext,
     audiencePulseHistory, appendPulseLabels,
     sendMessage, uploadFile, addMessage, setSlideContext, clearError,
@@ -88,11 +81,11 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const { user } = useAuth()
   const recorder = useRecorder()
   const slideReview = useSlideReview(authToken)
+  const contextFileHook = useContextFile(authToken)
   const hasSlidePanel = slideReview.panelOpen
 
   /* ── State ── */
   const [presentationMode, setPresentationMode] = useState(false)
-  const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
   const [navigatingToFeedback, setNavigatingToFeedback] = useState(false)
   const sessionSaveTriggered = useRef(false)
   const presentationCommittedRef = useRef(false)
@@ -308,7 +301,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   /* ── Derived state ── */
 
   const isBusy = useMemo(() => isCompressing || isTranscribing || isResearching || isStreaming, [isCompressing, isTranscribing, isResearching, isStreaming])
-  const isInputDisabled = useMemo(() => isBusy || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording, [isBusy, freeLimitReached, slideReview.isAnalyzing, recorder.isRecording])
+  const isInputDisabled = useMemo(() => isBusy || slideReview.isAnalyzing || recorder.isRecording, [isBusy, slideReview.isAnalyzing, recorder.isRecording])
   const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
   const chatMode = stage === "present" && !presentationMode
 
@@ -397,12 +390,14 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     const audience = chatSetupContext?.audience || savedCtx?.audience || "General audience"
     const goal = chatSetupContext?.goal || savedCtx?.goal || "Deliver effectively"
     const additionalContext = chatSetupContext?.additionalContext || savedCtx?.additionalContext || undefined
+    const fileContext = chatSetupContext?.fileContext || savedCtx?.fileContext || undefined
 
     const setup = {
       topic,
       audience,
       goal,
       ...(additionalContext ? { additionalContext } : {}),
+      ...(fileContext ? { fileContext } : {}),
     }
 
     const strippedMessages = messages
@@ -479,7 +474,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   /* ── Effects ── */
 
   useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])
-  useEffect(() => { if (freeLimitReached) setShowFreeLimitDialog(true) }, [freeLimitReached])
   useEffect(() => { if (error) { toast.error(error); clearError() } }, [error, clearError])
   useEffect(() => { if (slideReview.error) toast.error(slideReview.error) }, [slideReview.error])
 
@@ -530,8 +524,12 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       setNavigatingToFeedback(true)
     }
 
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
-    isPdf ? handlePdfAnalysis(file) : uploadFile(file)
+    const name = file.name.toLowerCase()
+    const isSlideFile = file.type === "application/pdf"
+      || file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      || name.endsWith(".pdf")
+      || name.endsWith(".pptx")
+    isSlideFile ? handlePdfAnalysis(file) : uploadFile(file)
     if (fileInputRef.current) fileInputRef.current.value = ""
     if (recordingInputRef.current) recordingInputRef.current.value = ""
   }
@@ -581,6 +579,14 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     setupCtx: SetupContext | null,
     contextMsg: string | null
   ) {
+    // Merge extracted file context into setup context
+    if (contextFileHook.extractedText) {
+      if (setupCtx) {
+        setupCtx = { ...setupCtx, fileContext: contextFileHook.extractedText }
+      } else {
+        setupCtx = { fileContext: contextFileHook.extractedText }
+      }
+    }
     savedSetupRef.current = { context: setupCtx, message: contextMsg }
 
     if (mode === "present") {
@@ -638,6 +644,11 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
               isTranscribing={isTranscribing}
               onResearchStart={startResearchEarly}
               onModeSelect={handleModeSelectFromWizard}
+              contextFile={contextFileHook.contextFile}
+              isExtractingContext={contextFileHook.isExtracting}
+              contextFileError={contextFileHook.error}
+              onContextFileUpload={contextFileHook.uploadContextFile}
+              onContextFileRemove={contextFileHook.removeContextFile}
             />
           ) : (
             <ChatView
@@ -655,7 +666,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
               isInputDisabled={isInputDisabled}
               showFollowUps={showFollowUps}
               followUps={followUps}
-              freeLimitReached={freeLimitReached}
               recorder={recorder}
               slideReview={slideReview}
               onSend={handleSendOrTransition}
@@ -705,9 +715,9 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       </AnimatePresence>
 
       {/* Hidden file inputs */}
-      <input ref={fileInputRef} type="file" accept="video/*,audio/*,.pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Upload video, audio, or PDF" />
+      <input ref={fileInputRef} type="file" accept="video/*,audio/*,.pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handleFileUpload} className="hidden" aria-label="Upload video, audio, or slides" />
       <input ref={recordingInputRef} type="file" accept="video/*,audio/*" onChange={handleFileUpload} className="hidden" aria-label="Upload video or audio recording" />
-      <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePdfUpload} className="hidden" aria-label="Upload PDF slides" />
+      <input ref={pdfInputRef} type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handlePdfUpload} className="hidden" aria-label="Upload slides" />
 
       {/* Transition overlay */}
       {navigatingToFeedback && (
@@ -717,20 +727,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
         </div>
       )}
 
-      {/* Free plan limit dialog */}
-      <Dialog open={showFreeLimitDialog} onOpenChange={setShowFreeLimitDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Daily message limit reached</DialogTitle>
-            <DialogDescription>You&apos;ve used all 20 of your daily messages. Upgrade to Pro for unlimited access.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-            <a href="/premium" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-              Upgrade to Pro
-            </a>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

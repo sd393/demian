@@ -41,6 +41,9 @@ function buildSetupSection(setupContext?: SetupContext): string {
   if (setupContext.audience) parts.push(`Audience: ${setupContext.audience}`)
   if (setupContext.goal) parts.push(`Goal: ${setupContext.goal}`)
   if (setupContext.additionalContext) parts.push(`Additional context: ${setupContext.additionalContext}`)
+  if (setupContext.fileContext) {
+    parts.push(`Reference material provided by the presenter:\n"""\n${setupContext.fileContext}\n"""`)
+  }
   if (parts.length === 0) return ''
   return `\nSETUP CONTEXT:\n${parts.join('\n')}\n`
 }

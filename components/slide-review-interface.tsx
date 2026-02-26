@@ -119,7 +119,7 @@ export function SlideReviewInterface({ authToken }: SlideReviewInterfaceProps) {
               Slide Deck Review
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              Upload your PDF and Vera will analyze each slide, then give you
+              Upload your slide deck and Vera will analyze each slide, then give you
               an actionable breakdown.
             </p>
           </div>
@@ -147,10 +147,10 @@ export function SlideReviewInterface({ authToken }: SlideReviewInterfaceProps) {
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  Drop your PDF here, or click to browse
+                  Drop your slides here, or click to browse
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  PDF files up to 50MB
+                  PDF or PPTX files up to 50MB
                 </p>
               </div>
             </div>
@@ -179,10 +179,10 @@ export function SlideReviewInterface({ authToken }: SlideReviewInterfaceProps) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,application/pdf"
+          accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
           onChange={(e) => handleFiles(e.target.files)}
           className="hidden"
-          aria-label="Upload PDF"
+          aria-label="Upload slides"
         />
       </div>
     )

@@ -4,7 +4,7 @@ import { slideAnalyzeRequestSchema } from '@/backend/validation'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
 import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import {
-  extractSlideTexts,
+  extractSlideTextsAuto,
   type SlideFeedback,
   type DeckFeedback,
 } from '@/backend/slides'
@@ -70,9 +70,9 @@ export async function handleSlidesAnalyze(request: NextRequest) {
         const downloadedPath = await downloadToTmp(blobUrl, fileName)
         tempPaths.push(downloadedPath)
 
-        // 2. Extract text from PDF pages
+        // 2. Extract text from slides (PDF or PPTX)
         enqueue(sseEvent('status', { step: 'rendering' }))
-        const slideTexts = await extractSlideTexts(downloadedPath)
+        const slideTexts = await extractSlideTextsAuto(downloadedPath)
         const totalSlides = slideTexts.length
 
         // 3. Single API call: analyze all slides with full deck context

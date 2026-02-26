@@ -3,13 +3,14 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
 import dynamic from "next/dynamic"
 import { AnimatePresence, motion } from "framer-motion"
-import { Loader2, ArrowRight, Upload, Send, Mic } from "lucide-react"
+import { Loader2, ArrowRight, Upload, Send, Mic, Paperclip, FileText, X } from "lucide-react"
 import { toast } from "sonner"
 import { FadeIn } from "@/components/motion"
 
 const ResearchCard = dynamic(() => import("@/components/research-card").then(m => ({ default: m.ResearchCard })))
 import type { SetupContext } from "@/lib/coaching-stages"
 import type { ResearchMeta } from "@/hooks/use-research-pipeline"
+import type { ContextFileInfo } from "@/hooks/use-context-file"
 
 const SETUP_EXAMPLES = [
   { topic: "my Series A pitch", audience: "VC investors", goal: "secure funding" },
@@ -29,6 +30,11 @@ interface SetupWizardProps {
   onModeSelect: (mode: "present" | "upload-recording" | "just-chat", setupContext: SetupContext | null, contextMessage: string | null) => void
   /** If provided, called instead of the normal submit flow (e.g. to redirect unauthenticated users). */
   onReady?: () => void
+  contextFile?: ContextFileInfo | null
+  isExtractingContext?: boolean
+  contextFileError?: string | null
+  onContextFileUpload?: (file: File) => void
+  onContextFileRemove?: () => void
 }
 
 export const SetupWizard = React.memo(function SetupWizard({
@@ -40,6 +46,11 @@ export const SetupWizard = React.memo(function SetupWizard({
   onResearchStart,
   onModeSelect,
   onReady,
+  contextFile,
+  isExtractingContext,
+  contextFileError,
+  onContextFileUpload,
+  onContextFileRemove,
 }: SetupWizardProps) {
   const [setupTopic, setSetupTopic] = useState("")
   const [setupAudience, setSetupAudience] = useState("")
@@ -47,6 +58,7 @@ export const SetupWizard = React.memo(function SetupWizard({
   const [setupAdditional, setSetupAdditional] = useState("")
   const [showAdditional, setShowAdditional] = useState(false)
   const [setupPhase, setSetupPhase] = useState<"fields" | "researching" | "review" | "mode-select" | "uploading">("fields")
+  const contextFileInputRef = useRef<HTMLInputElement>(null)
 
   /* ── Example cycling ── */
   const [exampleIndex, setExampleIndex] = useState(0)
@@ -134,6 +146,11 @@ export const SetupWizard = React.memo(function SetupWizard({
     window.addEventListener("keydown", handleKeyDown)
     return () => { window.removeEventListener("keyup", handleKeyUp); window.removeEventListener("keydown", handleKeyDown) }
   }, [setupPhase, researchMeta])
+
+  // Show toast when context file extraction fails
+  useEffect(() => {
+    if (contextFileError) toast.error(contextFileError)
+  }, [contextFileError])
 
   // Enter to default to "present live" on mode-select phase
   useEffect(() => {
@@ -342,54 +359,73 @@ export const SetupWizard = React.memo(function SetupWizard({
               {/* Optional additional context */}
               <FadeIn delay={0.15}>
                 <div className="mt-6 flex justify-center">
-                  <AnimatePresence mode="wait">
-                    {!showAdditional ? (
-                      <motion.button
-                        key="add-btn"
-                        type="button"
-                        onClick={() => setShowAdditional(true)}
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.2, ease: "easeInOut" }}
-                        className="font-display text-xs text-muted-foreground/50 transition-colors duration-300 hover:text-muted-foreground"
-                      >
-                        + Add more context
-                      </motion.button>
-                    ) : (
-                      <motion.div
-                        key="add-input"
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.2, ease: "easeInOut" }}
-                        className="font-display text-center text-lg text-muted-foreground sm:text-xl md:text-2xl"
-                      >
-                        <span className="relative inline-block pb-1" style={{ minWidth: "min(200px, 60vw)" }}>
-                          <span className="invisible whitespace-pre px-1">
-                            {setupAdditional || "Anything else Vera should know"}
-                          </span>
-                          <input
-                            autoFocus
-                            type="text"
-                            value={setupAdditional}
-                            onChange={(e) => setSetupAdditional(e.target.value)}
-                            onKeyDown={handleSetupKeyDown}
-                            onBlur={() => { if (!setupAdditional.trim()) setShowAdditional(false) }}
-                            placeholder="Anything else Vera should know"
-                            className="absolute inset-x-0 top-0 z-10 w-full bg-transparent text-center text-foreground caret-primary focus:outline-none placeholder:text-muted-foreground/30"
-                          />
-                          <motion.span
-                            className="absolute bottom-0 left-1/2 h-[2.5px] -translate-x-1/2 rounded-full bg-primary/30"
-                            animate={{ width: "calc(100% + 20px)" }}
-                            transition={{ duration: 0.35, ease: "easeInOut" }}
-                          />
-                        </span>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {!showAdditional ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAdditional(true)}
+                      className="font-display text-xs text-muted-foreground/50 transition-colors duration-300 hover:text-muted-foreground"
+                    >
+                      + Add more context
+                    </button>
+                  ) : (
+                    <textarea
+                      autoFocus
+                      rows={3}
+                      value={setupAdditional}
+                      onChange={(e) => setSetupAdditional(e.target.value)}
+                      onKeyDown={handleSetupKeyDown}
+                      placeholder="Anything else Vera should know"
+                      className="w-full max-w-sm resize-none rounded-xl border border-border bg-muted px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+                    />
+                  )}
                 </div>
               </FadeIn>
+
+              {/* Attach file — visible when additional context is expanded */}
+              {showAdditional && onContextFileUpload && (
+                <div className="mt-3 flex flex-col items-center gap-2">
+                  {!contextFile ? (
+                    <button
+                      type="button"
+                      onClick={() => contextFileInputRef.current?.click()}
+                      className="flex items-center gap-1 text-xs text-muted-foreground/40 transition-colors hover:text-muted-foreground/70"
+                    >
+                      <Paperclip className="h-3 w-3" />
+                      Attach a file
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/30 px-3 py-1 text-xs text-muted-foreground">
+                      {isExtractingContext ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <FileText className="h-3 w-3" />
+                      )}
+                      <span className="max-w-[150px] truncate">{contextFile.name}</span>
+                      {onContextFileRemove && (
+                        <button
+                          type="button"
+                          onClick={onContextFileRemove}
+                          className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-muted"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <input
+                    ref={contextFileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.docx,audio/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) onContextFileUpload(file)
+                      if (contextFileInputRef.current) contextFileInputRef.current.value = ""
+                    }}
+                    className="hidden"
+                    aria-label="Attach reference file"
+                  />
+                </div>
+              )}
 
               {/* Ready button */}
               <FadeIn delay={0.2}>
@@ -397,9 +433,9 @@ export const SetupWizard = React.memo(function SetupWizard({
                   <button
                     type="button"
                     onClick={handleSetupSubmit}
-                    disabled={!hasSetupContent}
+                    disabled={!hasSetupContent || !!isExtractingContext}
                     className={`flex items-center gap-2 rounded-full border px-6 py-2.5 text-sm font-medium transition-all duration-300 ease-out active:scale-[0.98] ${
-                      hasSetupContent
+                      hasSetupContent && !isExtractingContext
                         ? "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10 hover:border-primary/40"
                         : "pointer-events-none border-transparent bg-transparent text-transparent opacity-0"
                     }`}

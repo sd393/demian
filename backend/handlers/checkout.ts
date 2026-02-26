@@ -47,7 +47,7 @@ export async function handleCheckout(request: NextRequest) {
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${origin}/chat?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/premium?checkout=canceled`,
+      cancel_url: `${origin}/plans?checkout=canceled`,
       subscription_data: {
         metadata: { firebaseUid: auth.uid },
       },

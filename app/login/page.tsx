@@ -49,7 +49,7 @@ function LoginContent() {
     try {
       if (isSignUp) {
         await signUp(email, password, name)
-        router.push(redirect || "/premium")
+        router.push(redirect || "/plans")
       } else {
         await signIn(email, password)
         router.push(redirect || "/chat")

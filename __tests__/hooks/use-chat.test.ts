@@ -83,7 +83,6 @@ describe('useChat', () => {
     expect(result.current.isTranscribing).toBe(false)
     expect(result.current.isResearching).toBe(false)
     expect(result.current.error).toBeNull()
-    expect(result.current.freeLimitReached).toBe(false)
     expect(result.current.slideContext).toBeNull()
   })
 
@@ -143,29 +142,7 @@ describe('useChat', () => {
     expect(result.current.messages).toHaveLength(1)
   })
 
-  it('sets freeLimitReached on 403 with free_limit_reached code', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(
-        JSON.stringify({ error: 'Daily limit reached', code: 'free_limit_reached' }),
-        { status: 403 }
-      )
-    )
-
-    const { result } = renderHook(() => useChat('test-token'))
-
-    await act(async () => {
-      await result.current.sendMessage('Try sending')
-    })
-
-    expect(result.current.freeLimitReached).toBe(true)
-    // The assistant placeholder message should be removed
-    const assistantMessages = result.current.messages.filter(
-      (m) => m.role === 'assistant' && m.content === ''
-    )
-    expect(assistantMessages).toHaveLength(0)
-  })
-
-  it('sets error on non-ok response without free_limit_reached', async () => {
+  it('sets error on non-ok response', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(
         JSON.stringify({ error: 'Server error' }),

@@ -20,7 +20,7 @@ export function ChatNavbar({ plan }: ChatNavbarProps) {
             </span>
           ) : (
             <Link
-              href="/premium"
+              href="/plans"
               className="text-sm font-medium text-primary transition-colors hover:text-primary/80"
             >
               Upgrade

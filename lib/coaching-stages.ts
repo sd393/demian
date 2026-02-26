@@ -5,4 +5,5 @@ export interface SetupContext {
   audience?: string
   goal?: string
   additionalContext?: string
+  fileContext?: string
 }

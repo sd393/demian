@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, use } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Loader2, ChevronDown, FileText } from "lucide-react"
+import { ArrowLeft, Loader2, ChevronDown, FileText, Download } from "lucide-react"
 import { motion } from "framer-motion"
 import ReactMarkdown from "react-markdown"
 import { useAuth } from "@/contexts/auth-context"
@@ -31,6 +31,7 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
   const pollCount = useRef(0)
 
   // Get auth token for follow-up chat
@@ -106,6 +107,30 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
     setupContext: session?.setup ?? null,
   })
 
+  // Derive V2 scores early so the PDF handler can reference them.
+  // Safe even when session is null (returns null).
+  const v2ScoresForPdf = session?.scores && isV2Scores(session.scores)
+    ? (session.scores as SessionScoresV2)
+    : null
+
+  async function handleDownloadPdf() {
+    if (!session || !v2ScoresForPdf) return
+    setIsGeneratingPdf(true)
+    try {
+      const { generatePdfReport } = await import("@/components/feedback/pdf/generate-pdf")
+      await generatePdfReport({
+        scores: v2ScoresForPdf,
+        setup: session.setup,
+        transcript: session.transcript,
+        date: session.createdAt?.toDate?.() ?? new Date(),
+      })
+    } catch (err) {
+      console.error("[feedback] PDF generation failed:", err)
+    } finally {
+      setIsGeneratingPdf(false)
+    }
+  }
+
   if (authLoading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -155,12 +180,12 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
       </div>
 
       <div className="mx-auto max-w-3xl px-4 pt-12 pb-6 sm:px-6">
-        {/* ── Back button ── */}
+        {/* ── Top bar: back + download ── */}
         <motion.div
           initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-          className="mb-8"
+          className="mb-8 flex items-center justify-between"
         >
           <a
             href="/chat"
@@ -179,9 +204,26 @@ export default function FeedbackPage({ params }: { params: Promise<{ sessionId: 
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           >
             {headerTitle ? (
-              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                {headerTitle}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                  {headerTitle}
+                </h1>
+                {v2ScoresForPdf && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadPdf}
+                    disabled={isGeneratingPdf}
+                    className="inline-flex items-center justify-center rounded-md border border-border/60 bg-muted/40 p-1 text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:pointer-events-none disabled:opacity-50"
+                    aria-label="Download report"
+                  >
+                    {isGeneratingPdf ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="h-8 w-2/3 animate-pulse rounded-lg bg-muted/40" />
             )}
@@ -320,7 +362,7 @@ function ScoresLoadingState() {
         <div className="text-center">
           <p className="text-sm font-medium text-foreground/80">Analyzing your presentation</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Vera is writing up her thoughts...
+            Preparing your feedback...
           </p>
         </div>
       </div>

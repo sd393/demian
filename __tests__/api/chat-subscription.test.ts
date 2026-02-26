@@ -28,15 +28,10 @@ vi.mock('@/backend/auth', () => ({
   requireAuth: vi.fn().mockResolvedValue({ uid: 'user123', email: 'test@test.com' }),
 }))
 
-vi.mock('@/backend/subscription', () => ({
-  getUserPlan: vi.fn().mockResolvedValue({ plan: 'free', subscriptionStatus: null }),
-}))
-
 import { POST } from '@/app/api/chat/route'
 import { NextRequest } from 'next/server'
 import { checkRateLimit } from '@/backend/rate-limit'
 import { requireAuth } from '@/backend/auth'
-import { getUserPlan } from '@/backend/subscription'
 
 function createRequest(
   body: object,
@@ -63,12 +58,11 @@ async function readStream(response: Response): Promise<string> {
 
 const validBody = { messages: [{ role: 'user', content: 'Hello' }] }
 
-describe('POST /api/chat — subscription enforcement', () => {
+describe('POST /api/chat — auth enforcement', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
     vi.mocked(requireAuth).mockResolvedValue({ uid: 'user123', email: 'test@test.com' })
-    vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
     mockCreate.mockImplementation(() => createMockStream())
   })
 
@@ -87,65 +81,22 @@ describe('POST /api/chat — subscription enforcement', () => {
 
     const body = await response.json()
     expect(body.error).toContain('Authentication required')
-    expect(getUserPlan).not.toHaveBeenCalled()
   })
 
-  it('allows authenticated Pro user with unlimited messages', async () => {
-    vi.mocked(requireAuth).mockResolvedValue({ uid: 'pro-user', email: 'pro@test.com' })
-    vi.mocked(getUserPlan).mockResolvedValue({ plan: 'pro', subscriptionStatus: 'active' })
+  it('allows authenticated user to send messages', async () => {
+    vi.mocked(requireAuth).mockResolvedValue({ uid: 'user1', email: 'user@test.com' })
 
     const request = createRequest(validBody)
     const response = await POST(request)
 
     expect(response.status).toBe(200)
-    expect(getUserPlan).toHaveBeenCalledWith('pro-user')
+    expect(response.headers.get('Content-Type')).toBe('text/event-stream')
 
-    // checkRateLimit is called for IP rate limiting, but NOT for the free plan check
-    const rateLimitCalls = vi.mocked(checkRateLimit).mock.calls
-    const freePlanCalls = rateLimitCalls.filter(
-      (call) => typeof call[0] === 'string' && call[0].startsWith('free:')
-    )
-    expect(freePlanCalls).toHaveLength(0)
+    const streamContent = await readStream(response)
+    expect(streamContent).toContain('data: [DONE]')
   })
 
-  it('allows authenticated free user when under daily limit', async () => {
-    vi.mocked(requireAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
-    vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
-    vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
-
-    const request = createRequest(validBody)
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    expect(getUserPlan).toHaveBeenCalledWith('free-user')
-
-    const rateLimitCalls = vi.mocked(checkRateLimit).mock.calls
-    const freePlanCalls = rateLimitCalls.filter(
-      (call) => typeof call[0] === 'string' && call[0].startsWith('free:')
-    )
-    expect(freePlanCalls).toHaveLength(1)
-    expect(freePlanCalls[0][0]).toBe('free:free-user')
-  })
-
-  it('returns 403 with free_limit_reached when free user exceeds daily limit', async () => {
-    vi.mocked(requireAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
-    vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
-    vi.mocked(checkRateLimit).mockImplementation((id: string) => {
-      if (id.startsWith('free:')) return { allowed: false }
-      return { allowed: true }
-    })
-
-    const request = createRequest(validBody)
-    const response = await POST(request)
-
-    expect(response.status).toBe(403)
-
-    const body = await response.json()
-    expect(body.code).toBe('free_limit_reached')
-    expect(body.error).toContain('daily message limit')
-  })
-
-  it('returns 401 for invalid token and does not check plan', async () => {
+  it('returns 401 for invalid token and does not stream', async () => {
     vi.mocked(requireAuth).mockResolvedValue(
       new Response(
         JSON.stringify({ error: 'Invalid or expired token' }),
@@ -160,23 +111,14 @@ describe('POST /api/chat — subscription enforcement', () => {
 
     const body = await response.json()
     expect(body.error).toContain('Invalid or expired token')
-
-    expect(getUserPlan).not.toHaveBeenCalled()
   })
 
-  it('allows free user again after rate limit window resets', async () => {
-    vi.mocked(requireAuth).mockResolvedValue({ uid: 'free-user', email: 'free@test.com' })
-    vi.mocked(getUserPlan).mockResolvedValue({ plan: 'free', subscriptionStatus: null })
-    vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
+  it('returns 429 when IP rate limit is exceeded', async () => {
+    vi.mocked(checkRateLimit).mockReturnValue({ allowed: false })
 
     const request = createRequest(validBody)
     const response = await POST(request)
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get('Content-Type')).toBe('text/event-stream')
-
-    // Verify the stream completes successfully
-    const streamContent = await readStream(response)
-    expect(streamContent).toContain('data: [DONE]')
+    expect(response.status).toBe(429)
   })
 })

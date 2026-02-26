@@ -38,7 +38,7 @@ const plans = [
   },
 ]
 
-function PremiumContent() {
+function PlansContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, plan, loading } = useAuth()
@@ -47,13 +47,13 @@ function PremiumContent() {
   useEffect(() => {
     if (searchParams.get("checkout") === "canceled") {
       toast.info("Checkout canceled. You can try again anytime.")
-      window.history.replaceState({}, "", "/premium")
+      window.history.replaceState({}, "", "/plans")
     }
   }, [searchParams])
 
   async function handleUpgrade() {
     if (!user) {
-      router.push("/login?redirect=/premium")
+      router.push("/login?redirect=/plans")
       return
     }
 
@@ -204,10 +204,10 @@ function PremiumContent() {
   )
 }
 
-export default function PremiumPage() {
+export default function PlansPage() {
   return (
     <Suspense>
-      <PremiumContent />
+      <PlansContent />
     </Suspense>
   )
 }

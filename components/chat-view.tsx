@@ -41,7 +41,6 @@ interface ChatViewProps {
   isInputDisabled: boolean
   showFollowUps: boolean
   followUps: readonly { label: string; message: string }[]
-  freeLimitReached: boolean
   recorder: {
     isRecording: boolean
     analyserNode: AnalyserNode | null
@@ -80,7 +79,6 @@ export const ChatView = React.memo(function ChatView({
   isInputDisabled,
   showFollowUps,
   followUps,
-  freeLimitReached,
   recorder,
   slideReview,
   onSend,
@@ -263,7 +261,7 @@ export const ChatView = React.memo(function ChatView({
             {recorder.isRecording ? recordingContent : (
               <>
                 <button type="button" onClick={() => (chatMode ? onPdfClick : onFileClick)()}
-                  disabled={isBusy || freeLimitReached || slideReview.isAnalyzing}
+                  disabled={isBusy || slideReview.isAnalyzing}
                   className="absolute left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   aria-label="Attach a file">
                   <Paperclip className="h-4 w-4" />
@@ -275,7 +273,7 @@ export const ChatView = React.memo(function ChatView({
                   className="h-full w-full bg-transparent pl-12 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
                 />
                 <button type="button" onClick={onStartRecording}
-                  disabled={isBusy || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
+                  disabled={isBusy || slideReview.isAnalyzing || !!input.trim()}
                   className="absolute right-11 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
                   aria-label="Start recording">
                   <Mic className="h-4 w-4" />
@@ -289,7 +287,7 @@ export const ChatView = React.memo(function ChatView({
                 ) : (
                   <button type="button"
                     onClick={onPresentationModeEnter}
-                    disabled={isBusy || freeLimitReached}
+                    disabled={isBusy}
                     className="absolute right-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30"
                     aria-label="Enter presentation mode">
                     <Smile className="h-4 w-4" />

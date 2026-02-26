@@ -1,12 +1,22 @@
 import { z } from 'zod'
 
 export const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
+export const MAX_CONTEXT_DOC_SIZE = 50 * 1024 * 1024 // 50MB
 
 // Audio/video extensions that ffmpeg can process
 const MEDIA_EXTENSIONS = [
   '.mp3', '.mp4', '.m4a', '.wav', '.mpeg', '.mpga', '.webm',
   '.ogg', '.flac', '.aac', '.wma', '.mov', '.avi', '.mkv',
   '.m4v', '.opus', '.3gp',
+] as const
+
+// Document extensions accepted for context file uploads
+const CONTEXT_DOC_EXTENSIONS = ['.pdf', '.txt', '.docx'] as const
+
+const CONTEXT_DOC_MIMES = [
+  'application/pdf',
+  'text/plain',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ] as const
 
 export function validateFile(
@@ -39,6 +49,52 @@ export function validateFile(
   return { valid: true }
 }
 
+export function validateContextFile(
+  file: { name: string; type: string; size: number }
+): { valid: true } | { valid: false; error: string } {
+  if (file.size === 0) {
+    return { valid: false, error: 'File is empty' }
+  }
+
+  const name = file.name.toLowerCase()
+  const isAudio = file.type.startsWith('audio/') || MEDIA_EXTENSIONS.some((ext) => name.endsWith(ext))
+
+  if (isAudio) {
+    if (file.size > MAX_FILE_SIZE) {
+      return {
+        valid: false,
+        error: `Audio file size exceeds 500MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB)`,
+      }
+    }
+    return { valid: true }
+  }
+
+  // Document files
+  const extValid = CONTEXT_DOC_EXTENSIONS.some((ext) => name.endsWith(ext))
+  const mimeValid = CONTEXT_DOC_MIMES.some((m) => file.type === m)
+
+  if (!extValid && !mimeValid) {
+    return {
+      valid: false,
+      error: 'Unsupported file type. Please upload a PDF, .txt, .docx, or audio file.',
+    }
+  }
+
+  if (file.size > MAX_CONTEXT_DOC_SIZE) {
+    return {
+      valid: false,
+      error: `Document size exceeds 50MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB)`,
+    }
+  }
+
+  return { valid: true }
+}
+
+export const extractContextRequestSchema = z.object({
+  blobUrl: z.string().url(),
+  fileName: z.string().min(1).max(255),
+})
+
 const chatMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
   content: z.string().min(1).max(50_000),
@@ -55,6 +111,7 @@ export const chatRequestSchema = z.object({
     audience: z.string().max(500).optional(),
     goal: z.string().max(500).optional(),
     additionalContext: z.string().max(2000).optional(),
+    fileContext: z.string().max(50_000).optional(),
   }).optional(),
 })
 
@@ -88,13 +145,14 @@ export function validateSlideFile(
   }
 
   const name = file.name.toLowerCase()
-  const extValid = name.endsWith('.pdf')
-  const mimeValid = file.type === 'application/pdf'
+  const extValid = name.endsWith('.pdf') || name.endsWith('.pptx')
+  const mimeValid = file.type === 'application/pdf' ||
+    file.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 
   if (!extValid && !mimeValid) {
     return {
       valid: false,
-      error: 'Unsupported file type. Please upload a PDF file.',
+      error: 'Unsupported file type. Please upload a PDF or PPTX file.',
     }
   }
 
@@ -119,6 +177,7 @@ export const feedbackScoreRequestSchema = z.object({
     audience: z.string().max(500),
     goal: z.string().max(500),
     additionalContext: z.string().max(2000).optional(),
+    fileContext: z.string().max(50_000).optional(),
   }),
   messages: z
     .array(
