@@ -25,7 +25,9 @@
       "Bash(lsof:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
-      "Bash(pnpm vitest:*)"
+      "Bash(pnpm vitest:*)",
+      "Bash(pnpm dlx:*)",
+      "Bash(pnpm add:*)"
     ]
   }
 }

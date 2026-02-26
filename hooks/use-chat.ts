@@ -17,7 +17,6 @@ export function useChat(authToken?: string | null) {
   const [slideContext, setSlideContext] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [freeLimitReached, setFreeLimitReached] = useState(false)
 
   const slideContextRef = useRef<string | null>(null)
   const authTokenRef = useRef<string | null>(null)
@@ -97,14 +96,6 @@ export function useChat(authToken?: string | null) {
 
         if (!response.ok) {
           const err = await response.json().catch(() => ({}))
-          if (err.code === 'free_limit_reached') {
-            setFreeLimitReached(true)
-            setMessages((prev) =>
-              prev.filter((m) => m.id !== assistantMessageId)
-            )
-            setIsStreaming(false)
-            return
-          }
           throw new Error(
             err.error || `Request failed with status ${response.status}`
           )
@@ -216,7 +207,6 @@ export function useChat(authToken?: string | null) {
     isResearching,
     isStreaming,
     error,
-    freeLimitReached,
     stage,
     setupContext,
     audiencePulseHistory,

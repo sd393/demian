@@ -5,7 +5,6 @@ import { buildSystemPrompt } from '@/backend/system-prompt'
 import { checkRateLimit, getClientIp } from '@/backend/rate-limit'
 import { RATE_LIMITS } from '@/backend/rate-limit-config'
 import { requireAuth } from '@/backend/auth'
-import { getUserPlan } from '@/backend/subscription'
 import { SSE_HEADERS } from '@/backend/request-utils'
 
 export async function handleChat(request: NextRequest) {
@@ -22,21 +21,6 @@ export async function handleChat(request: NextRequest) {
   // If requireAuth returned a Response, it's a 401 error
   if (authResult instanceof Response) {
     return authResult
-  }
-
-  // Authenticated user — check plan-based limits
-  const { plan } = await getUserPlan(authResult.uid)
-  if (plan !== 'pro') {
-    // Free authenticated users: 20 messages per 24h
-    if (!checkRateLimit('free:' + authResult.uid, RATE_LIMITS.chatFreeUser.limit, RATE_LIMITS.chatFreeUser.windowMs).allowed) {
-      return NextResponse.json(
-        {
-          error: 'You\'ve reached your daily message limit. Upgrade to Pro for unlimited messages.',
-          code: 'free_limit_reached',
-        },
-        { status: 403 }
-      )
-    }
   }
 
   try {

@@ -19,7 +19,14 @@ export async function handleUploadRoute(request: NextRequest) {
       request,
       onBeforeGenerateToken: async (_pathname) => {
         return {
-          allowedContentTypes: ['audio/*', 'video/*', 'application/pdf'],
+          allowedContentTypes: [
+            'audio/*',
+            'video/*',
+            'application/pdf',
+            'text/plain',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          ],
           maximumSizeInBytes: 500 * 1024 * 1024, // 500MB
           addRandomSuffix: true,
         }

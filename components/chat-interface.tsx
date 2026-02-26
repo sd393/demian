@@ -28,14 +28,6 @@ import { FadeIn, motion } from "@/components/motion"
 import { SlidePanel } from "@/components/slide-panel"
 import { AudioWaveform } from "@/components/audio-waveform"
 import { ResearchCard } from "@/components/research-card"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
 
 /* ── Empty-state starter prompts ── */
 
@@ -90,7 +82,6 @@ export function ChatInterface({
     isResearching,
     isStreaming,
     error,
-    freeLimitReached,
     sendMessage,
     uploadFile,
     addMessage,
@@ -111,7 +102,6 @@ export function ChatInterface({
   const recorder = useRecorder()
 
   const [input, setInput] = useState("")
-  const [showFreeLimitDialog, setShowFreeLimitDialog] = useState(false)
   const [inputPlaceholder, setInputPlaceholder] = useState(
     "Describe your audience or ask for feedback..."
   )
@@ -150,7 +140,7 @@ export function ChatInterface({
   }, [])
 
   const isBusy = isCompressing || isTranscribing || isResearching || isStreaming
-  const isInputDisabled = isBusy || freeLimitReached || slideReview.isAnalyzing || recorder.isRecording
+  const isInputDisabled = isBusy || slideReview.isAnalyzing || recorder.isRecording
   const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
 
   useEffect(() => {
@@ -177,10 +167,6 @@ export function ChatInterface({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isTranscribing, isStreaming])
-
-  useEffect(() => {
-    if (freeLimitReached) setShowFreeLimitDialog(true)
-  }, [freeLimitReached])
 
   useEffect(() => {
     if (error) {
@@ -320,7 +306,7 @@ export function ChatInterface({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isBusy || freeLimitReached || slideReview.isAnalyzing}
+                disabled={isBusy || slideReview.isAnalyzing}
                 className="absolute left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                 aria-label="Attach a file"
               >
@@ -343,7 +329,7 @@ export function ChatInterface({
               <button
                 type="button"
                 onClick={handleStartRecording}
-                disabled={isBusy || freeLimitReached || slideReview.isAnalyzing || !!input.trim()}
+                disabled={isBusy || slideReview.isAnalyzing || !!input.trim()}
                 className="absolute right-11 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
                 aria-label="Start recording"
               >
@@ -818,25 +804,6 @@ export function ChatInterface({
         </div>
       )}
 
-      {/* Free plan limit dialog */}
-      <Dialog open={showFreeLimitDialog} onOpenChange={setShowFreeLimitDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Daily message limit reached</DialogTitle>
-            <DialogDescription>
-              You&apos;ve used all 20 of your daily messages. Upgrade to Pro for unlimited access.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-            <a
-              href="/premium"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Upgrade to Pro
-            </a>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

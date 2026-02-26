@@ -164,6 +164,28 @@ describe('buildSystemPrompt', () => {
       expect(promptFeedback2).toContain('RULES:')
     })
 
+    it('includes reference material when fileContext is set', () => {
+      const prompt = buildSystemPrompt({
+        stage: 'define',
+        setupContext: {
+          topic: 'Sales pitch',
+          audience: 'Buyers',
+          goal: 'Close deal',
+          fileContext: 'The RFP requires cloud-native architecture.',
+        },
+      })
+      expect(prompt).toContain('Reference material provided by the presenter')
+      expect(prompt).toContain('The RFP requires cloud-native architecture.')
+    })
+
+    it('omits reference material when fileContext is undefined', () => {
+      const prompt = buildSystemPrompt({
+        stage: 'define',
+        setupContext: { topic: 'Sales pitch', audience: 'Buyers', goal: 'Close deal' },
+      })
+      expect(prompt).not.toContain('Reference material')
+    })
+
     it('includes setup context in all stages', () => {
       const ctx = { topic: 'AI safety', audience: 'policymakers', goal: 'build consensus' }
       for (const stage of ['define', 'present', 'feedback', 'followup'] as const) {

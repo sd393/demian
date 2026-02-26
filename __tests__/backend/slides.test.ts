@@ -18,7 +18,7 @@ vi.mock('unpdf', () => ({
 }))
 
 import fs from 'fs/promises'
-import { extractSlideTexts, slidesTempPath, MAX_SLIDES } from '@/backend/slides'
+import { extractSlideTexts, extractSlideTextsFromPptx, extractSlideTextsAuto, slidesTempPath, MAX_SLIDES } from '@/backend/slides'
 
 describe('slidesTempPath', () => {
   it('returns a path ending with the given extension', () => {
@@ -91,5 +91,129 @@ describe('extractSlideTexts', () => {
     mockExtractText.mockRejectedValue(new Error('parse error'))
 
     await expect(extractSlideTexts('/tmp/bad.pdf')).rejects.toThrow('parse error')
+  })
+})
+
+// --- PPTX extraction tests ---
+
+const { mockLoadAsync } = vi.hoisted(() => {
+  const mockLoadAsync = vi.fn()
+  return { mockLoadAsync }
+})
+
+vi.mock('jszip', () => ({
+  default: {
+    loadAsync: mockLoadAsync,
+  },
+}))
+
+function makeSlideXml(texts: string[]): string {
+  const paragraphs = texts.map(t => `<a:p><a:r><a:t>${t}</a:t></a:r></a:p>`)
+  return `<?xml version="1.0"?><p:sld>${paragraphs.join('')}</p:sld>`
+}
+
+function makeMockZip(slides: Record<string, string>) {
+  const entries: Record<string, { async: () => Promise<string> }> = {}
+  for (const [path, content] of Object.entries(slides)) {
+    entries[path] = { async: () => Promise.resolve(content) }
+  }
+  return {
+    forEach: (cb: (path: string, entry: { async: (type: string) => Promise<string> }) => void) => {
+      for (const [path, entry] of Object.entries(entries)) {
+        cb(path, entry)
+      }
+    },
+  }
+}
+
+describe('extractSlideTextsFromPptx', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(fs.readFile).mockResolvedValue(Buffer.from('fake-pptx-bytes'))
+  })
+
+  it('extracts text from PPTX slide XMLs', async () => {
+    mockLoadAsync.mockResolvedValue(makeMockZip({
+      'ppt/slides/slide1.xml': makeSlideXml(['Title Slide', 'Subtitle']),
+      'ppt/slides/slide2.xml': makeSlideXml(['Content Slide']),
+    }))
+
+    const slides = await extractSlideTextsFromPptx('/tmp/deck.pptx')
+    expect(slides).toHaveLength(2)
+    expect(slides[0].slideNumber).toBe(1)
+    expect(slides[0].text).toContain('Title Slide')
+    expect(slides[0].text).toContain('Subtitle')
+    expect(slides[1].text).toContain('Content Slide')
+  })
+
+  it('sorts slides by number', async () => {
+    mockLoadAsync.mockResolvedValue(makeMockZip({
+      'ppt/slides/slide3.xml': makeSlideXml(['Third']),
+      'ppt/slides/slide1.xml': makeSlideXml(['First']),
+      'ppt/slides/slide2.xml': makeSlideXml(['Second']),
+    }))
+
+    const slides = await extractSlideTextsFromPptx('/tmp/deck.pptx')
+    expect(slides[0].text).toContain('First')
+    expect(slides[1].text).toContain('Second')
+    expect(slides[2].text).toContain('Third')
+  })
+
+  it('uses placeholder for slides with no text', async () => {
+    mockLoadAsync.mockResolvedValue(makeMockZip({
+      'ppt/slides/slide1.xml': '<?xml version="1.0"?><p:sld><p:cSld></p:cSld></p:sld>',
+    }))
+
+    const slides = await extractSlideTextsFromPptx('/tmp/deck.pptx')
+    expect(slides[0].text).toContain('No text')
+  })
+
+  it('ignores non-slide entries in the zip', async () => {
+    mockLoadAsync.mockResolvedValue(makeMockZip({
+      'ppt/slides/slide1.xml': makeSlideXml(['Content']),
+      'ppt/slideMasters/slideMaster1.xml': makeSlideXml(['Master']),
+      'ppt/slideLayouts/slideLayout1.xml': makeSlideXml(['Layout']),
+      '[Content_Types].xml': '<Types/>',
+    }))
+
+    const slides = await extractSlideTextsFromPptx('/tmp/deck.pptx')
+    expect(slides).toHaveLength(1)
+    expect(slides[0].text).toContain('Content')
+  })
+
+  it('caps at MAX_SLIDES slides', async () => {
+    const entries: Record<string, string> = {}
+    for (let i = 1; i <= MAX_SLIDES + 5; i++) {
+      entries[`ppt/slides/slide${i}.xml`] = makeSlideXml([`Slide ${i}`])
+    }
+    mockLoadAsync.mockResolvedValue(makeMockZip(entries))
+
+    const slides = await extractSlideTextsFromPptx('/tmp/big.pptx')
+    expect(slides).toHaveLength(MAX_SLIDES)
+  })
+})
+
+describe('extractSlideTextsAuto', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(fs.readFile).mockResolvedValue(Buffer.from('fake-bytes'))
+  })
+
+  it('delegates to PDF extraction for .pdf files', async () => {
+    mockExtractText.mockResolvedValue({ totalPages: 1, text: ['PDF content'] })
+
+    const slides = await extractSlideTextsAuto('/tmp/deck.pdf')
+    expect(mockExtractText).toHaveBeenCalled()
+    expect(slides[0].text).toContain('PDF content')
+  })
+
+  it('delegates to PPTX extraction for .pptx files', async () => {
+    mockLoadAsync.mockResolvedValue(makeMockZip({
+      'ppt/slides/slide1.xml': makeSlideXml(['PPTX content']),
+    }))
+
+    const slides = await extractSlideTextsAuto('/tmp/deck.pptx')
+    expect(mockLoadAsync).toHaveBeenCalled()
+    expect(slides[0].text).toContain('PPTX content')
   })
 })

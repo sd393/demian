@@ -7,8 +7,6 @@
 export const RATE_LIMITS = {
   /** Chat endpoint — IP-level burst protection */
   chatIp: { limit: 10, windowMs: 60_000 },
-  /** Chat endpoint — free-plan daily cap per user */
-  chatFreeUser: { limit: 20, windowMs: 86_400_000 },
   /** Transcription — heavier compute, tighter IP limit */
   transcribe: { limit: 5, windowMs: 60_000 },
   /** File upload — IP-level burst protection */
@@ -21,6 +19,8 @@ export const RATE_LIMITS = {
   checkout: { limit: 3, windowMs: 60_000 },
   /** Checkout session verification — per user */
   verifyCheckout: { limit: 5, windowMs: 60_000 },
+  /** Context file extraction — heavier compute, tighter IP limit */
+  contextExtract: { limit: 5, windowMs: 60_000 },
   /** Blob deletion — IP-level burst protection */
   blobDelete: { limit: 10, windowMs: 60_000 },
 } as const satisfies Record<string, { limit: number; windowMs: number }>

@@ -110,10 +110,7 @@ export default function AccountPage() {
   }
 
   const planLabel = plan === "pro" ? "Pro Plan" : "Free Plan"
-  const planDescription =
-    plan === "pro"
-      ? "Unlimited presentations and advanced features"
-      : "Basic presentation feedback"
+  const planDescription = "Unlimited presentations and advanced features"
 
   return (
     <div className="relative min-h-screen px-6 py-24">
@@ -351,7 +348,7 @@ export default function AccountPage() {
                 </button>
               ) : (
                 <button
-                  onClick={() => router.push("/premium")}
+                  onClick={() => router.push("/plans")}
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/25"
                 >
                   Upgrade

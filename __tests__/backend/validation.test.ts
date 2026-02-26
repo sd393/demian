@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   validateFile,
   validateSlideFile,
+  validateContextFile,
   chatRequestSchema,
   researchRequestSchema,
   slideAnalyzeRequestSchema,
   transcribeRequestSchema,
+  extractContextRequestSchema,
   feedbackScoreRequestSchema,
   blobDeleteRequestSchema,
   sanitizeInput,
@@ -398,15 +400,33 @@ describe('validateSlideFile', () => {
     expect(result.valid).toBe(true)
   })
 
-  it('rejects non-PDF files', () => {
+  it('accepts a valid PPTX by MIME type', () => {
     const result = validateSlideFile({
       name: 'presentation.pptx',
       type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       size: 1024 * 1024,
     })
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts a valid PPTX by extension even with generic MIME', () => {
+    const result = validateSlideFile({
+      name: 'deck.pptx',
+      type: 'application/octet-stream',
+      size: 1024 * 1024,
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects non-slide files', () => {
+    const result = validateSlideFile({
+      name: 'document.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 1024 * 1024,
+    })
     expect(result.valid).toBe(false)
     if (!result.valid) {
-      expect(result.error).toContain('PDF')
+      expect(result.error).toContain('PDF or PPTX')
     }
   })
 
@@ -632,5 +652,133 @@ describe('sanitizeInput edge cases', () => {
 
   it('handles unicode characters', () => {
     expect(sanitizeInput('  café résumé  ')).toBe('café résumé')
+  })
+})
+
+describe('validateContextFile', () => {
+  it('accepts a valid .pdf', () => {
+    const result = validateContextFile({ name: 'doc.pdf', type: 'application/pdf', size: 1024 })
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts a valid .txt', () => {
+    const result = validateContextFile({ name: 'notes.txt', type: 'text/plain', size: 1024 })
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts a valid .docx', () => {
+    const result = validateContextFile({
+      name: 'brief.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 1024,
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts .docx with octet-stream MIME (browser mismatch)', () => {
+    const result = validateContextFile({ name: 'brief.docx', type: 'application/octet-stream', size: 1024 })
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts audio files', () => {
+    const result = validateContextFile({ name: 'recording.mp3', type: 'audio/mpeg', size: 5 * 1024 * 1024 })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects empty files', () => {
+    const result = validateContextFile({ name: 'empty.pdf', type: 'application/pdf', size: 0 })
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.error).toContain('empty')
+  })
+
+  it('rejects oversized document files (>50MB)', () => {
+    const result = validateContextFile({ name: 'huge.pdf', type: 'application/pdf', size: 51 * 1024 * 1024 })
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.error).toContain('50MB')
+  })
+
+  it('allows audio files up to 500MB', () => {
+    const result = validateContextFile({ name: 'big.mp3', type: 'audio/mpeg', size: 500 * 1024 * 1024 })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects oversized audio files (>500MB)', () => {
+    const result = validateContextFile({ name: 'huge.wav', type: 'audio/wav', size: 501 * 1024 * 1024 })
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.error).toContain('500MB')
+  })
+
+  it('rejects unsupported extensions', () => {
+    const result = validateContextFile({ name: 'file.exe', type: 'application/octet-stream', size: 1024 })
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.error).toContain('Unsupported')
+  })
+})
+
+describe('extractContextRequestSchema', () => {
+  it('accepts a valid request', () => {
+    const result = extractContextRequestSchema.safeParse({
+      blobUrl: 'https://example.com/doc.pdf',
+      fileName: 'doc.pdf',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects invalid blobUrl', () => {
+    const result = extractContextRequestSchema.safeParse({
+      blobUrl: 'not-a-url',
+      fileName: 'doc.pdf',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects empty fileName', () => {
+    const result = extractContextRequestSchema.safeParse({
+      blobUrl: 'https://example.com/doc.pdf',
+      fileName: '',
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('chatRequestSchema fileContext', () => {
+  it('accepts setupContext with fileContext', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: {
+        topic: 'My pitch',
+        audience: 'VCs',
+        goal: 'get funded',
+        fileContext: 'Reference document content here.',
+      },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.setupContext?.fileContext).toBe('Reference document content here.')
+    }
+  })
+
+  it('rejects fileContext exceeding 50,000 chars', () => {
+    const result = chatRequestSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      setupContext: { fileContext: 'x'.repeat(50_001) },
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('feedbackScoreRequestSchema fileContext', () => {
+  it('accepts setup with fileContext', () => {
+    const result = feedbackScoreRequestSchema.safeParse({
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'Hello' }],
+      setup: {
+        topic: 'My pitch',
+        audience: 'VCs',
+        goal: 'Get funded',
+        fileContext: 'Some reference material.',
+      },
+    })
+    expect(result.success).toBe(true)
   })
 })

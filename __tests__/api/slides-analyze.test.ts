@@ -21,12 +21,14 @@ vi.mock('@/backend/audio', () => ({
 
 vi.mock('@/backend/slides', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/backend/slides')>()
+  const mockFn = vi.fn().mockResolvedValue([
+    { slideNumber: 1, text: 'Title slide: Q4 Results' },
+    { slideNumber: 2, text: 'Revenue grew 30% YoY' },
+  ])
   return {
     ...original,
-    extractSlideTexts: vi.fn().mockResolvedValue([
-      { slideNumber: 1, text: 'Title slide: Q4 Results' },
-      { slideNumber: 2, text: 'Revenue grew 30% YoY' },
-    ]),
+    extractSlideTexts: mockFn,
+    extractSlideTextsAuto: mockFn,
   }
 })
 
@@ -39,7 +41,7 @@ import { POST } from '@/app/api/slides/analyze/route'
 import { NextRequest } from 'next/server'
 import { checkRateLimit } from '@/backend/rate-limit'
 import { downloadToTmp, cleanupTempFiles } from '@/backend/audio'
-import { extractSlideTexts } from '@/backend/slides'
+import { extractSlideTextsAuto } from '@/backend/slides'
 
 const SLIDE_FEEDBACK_1 = {
   slideNumber: 1,
@@ -109,7 +111,7 @@ describe('POST /api/slides/analyze', () => {
     vi.clearAllMocks()
     vi.mocked(checkRateLimit).mockReturnValue({ allowed: true })
     vi.mocked(downloadToTmp).mockResolvedValue('/tmp/vera-slides-test.pdf')
-    vi.mocked(extractSlideTexts).mockResolvedValue([
+    vi.mocked(extractSlideTextsAuto).mockResolvedValue([
       { slideNumber: 1, text: 'Title slide: Q4 Results' },
       { slideNumber: 2, text: 'Revenue grew 30% YoY' },
     ])
@@ -226,7 +228,7 @@ describe('POST /api/slides/analyze', () => {
   })
 
   it('cleans up temp files even on error', async () => {
-    vi.mocked(extractSlideTexts).mockRejectedValueOnce(new Error('PDF parse error'))
+    vi.mocked(extractSlideTextsAuto).mockRejectedValueOnce(new Error('PDF parse error'))
     const request = createRequest({
       blobUrl: 'https://example.vercel-storage.com/deck.pdf',
       fileName: 'deck.pdf',

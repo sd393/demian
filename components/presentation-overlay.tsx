@@ -296,7 +296,7 @@ export const PresentationOverlay = React.memo(function PresentationOverlay({
       ) : faceColumn}
 
       {/* Hidden PDF input */}
-      <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePdfChange} className="hidden" aria-label="Add slides to presentation" />
+      <input ref={pdfInputRef} type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handlePdfChange} className="hidden" aria-label="Add slides to presentation" />
     </motion.div>
   )
 })
