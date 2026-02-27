@@ -5,8 +5,8 @@ import { upload } from '@vercel/blob/client'
 import { validateFile } from '@/backend/validation'
 import { shouldExtractClientSide, extractAudioClientSide } from '@/lib/client-audio'
 import { buildAuthHeaders } from '@/lib/api-utils'
-import type { Message, Attachment } from '@/hooks/use-chat-messages'
-import { generateId } from '@/hooks/use-chat-messages'
+import type { Message, Attachment } from '@/hooks/use-message-context'
+import { generateId } from '@/hooks/use-message-context'
 
 interface UseTranscriptionDeps {
   messagesRef: React.RefObject<Message[]>

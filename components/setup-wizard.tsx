@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
 import dynamic from "next/dynamic"
 import { AnimatePresence, motion } from "framer-motion"
-import { Loader2, ArrowRight, Upload, Send, Mic, Paperclip, FileText, X } from "lucide-react"
+import { Loader2, ArrowRight, Upload, Mic, Paperclip, FileText, X } from "lucide-react"
 import { toast } from "sonner"
 import { FadeIn } from "@/components/motion"
 
@@ -27,7 +27,7 @@ interface SetupWizardProps {
   isCompressing: boolean
   isTranscribing: boolean
   onResearchStart: (audience: string, opts?: { topic?: string; goal?: string; additionalContext?: string }) => void
-  onModeSelect: (mode: "present" | "upload-recording" | "just-chat", setupContext: SetupContext | null, contextMessage: string | null) => void
+  onModeSelect: (mode: "present" | "upload-recording", setupContext: SetupContext | null, contextMessage: string | null) => void
   /** If provided, called instead of the normal submit flow (e.g. to redirect unauthenticated users). */
   onReady?: () => void
   contextFile?: ContextFileInfo | null
@@ -214,7 +214,7 @@ export const SetupWizard = React.memo(function SetupWizard({
     }
   }
 
-  function handleModeSelectInternal(mode: "present" | "upload-recording" | "just-chat") {
+  function handleModeSelectInternal(mode: "present" | "upload-recording") {
     onModeSelect(mode, buildSetupContext(), buildContextMessage())
   }
 
@@ -541,16 +541,7 @@ export const SetupWizard = React.memo(function SetupWizard({
                   className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                 >
                   <Upload className="h-3 w-3" />
-                  Upload
-                </button>
-                <span className="text-[11px] text-muted-foreground/30">or</span>
-                <button
-                  type="button"
-                  onClick={() => handleModeSelectInternal("just-chat")}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-                >
-                  <Send className="h-3 w-3" />
-                  Chat
+                  Upload a recording
                 </button>
               </div>
             </motion.div>

@@ -20,7 +20,7 @@ vi.mock('@/lib/sse-utils', () => ({
   })),
 }))
 
-import { useChat } from '@/hooks/use-chat'
+import { useCoachingSession } from '@/hooks/use-coaching-session'
 import { parseSSEStream, createRAFBatcher } from '@/lib/sse-utils'
 
 // Helper: build a mock fetch response with SSE body
@@ -38,7 +38,7 @@ function makeSSEResponse(chunks: string[], status = 200): Response {
   })
 }
 
-describe('useChat', () => {
+describe('useCoachingSession', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
@@ -66,15 +66,13 @@ describe('useChat', () => {
     vi.restoreAllMocks()
   })
 
-  it('starts with initial assistant message', () => {
-    const { result } = renderHook(() => useChat())
-    expect(result.current.messages).toHaveLength(1)
-    expect(result.current.messages[0].role).toBe('assistant')
-    expect(result.current.messages[0].content).toContain('Vera')
+  it('starts with empty messages', () => {
+    const { result } = renderHook(() => useCoachingSession())
+    expect(result.current.messages).toHaveLength(0)
   })
 
   it('starts with default state values', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
     expect(result.current.stage).toBe('define')
     expect(result.current.transcript).toBeNull()
     expect(result.current.researchContext).toBeNull()
@@ -87,14 +85,14 @@ describe('useChat', () => {
   })
 
   it('sendMessage adds user message and triggers streaming', async () => {
-    const { result } = renderHook(() => useChat('test-token'))
+    const { result } = renderHook(() => useCoachingSession('test-token'))
 
     await act(async () => {
       await result.current.sendMessage('Hello coach')
     })
 
-    // Should have initial message + user message + assistant (streaming) message
-    expect(result.current.messages.length).toBeGreaterThanOrEqual(2)
+    // Should have user message + assistant (streaming) message
+    expect(result.current.messages.length).toBeGreaterThanOrEqual(1)
 
     const userMsg = result.current.messages.find(
       (m) => m.role === 'user' && m.content === 'Hello coach'
@@ -104,7 +102,7 @@ describe('useChat', () => {
 
   it('sendMessage calls fetch with correct endpoint and headers', async () => {
     const fetchSpy = vi.mocked(fetch)
-    const { result } = renderHook(() => useChat('my-token'))
+    const { result } = renderHook(() => useCoachingSession('my-token'))
 
     await act(async () => {
       await result.current.sendMessage('Test message')
@@ -120,7 +118,7 @@ describe('useChat', () => {
 
   it('sendMessage includes stage in request body', async () => {
     const fetchSpy = vi.mocked(fetch)
-    const { result } = renderHook(() => useChat('test-token'))
+    const { result } = renderHook(() => useCoachingSession('test-token'))
 
     await act(async () => {
       await result.current.sendMessage('Check this out')
@@ -132,14 +130,14 @@ describe('useChat', () => {
 
   it('sendMessage ignores empty/whitespace input', async () => {
     const fetchSpy = vi.mocked(fetch)
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     await act(async () => {
       await result.current.sendMessage('   ')
     })
 
     expect(fetchSpy).not.toHaveBeenCalled()
-    expect(result.current.messages).toHaveLength(1)
+    expect(result.current.messages).toHaveLength(0)
   })
 
   it('sets error on non-ok response', async () => {
@@ -150,7 +148,7 @@ describe('useChat', () => {
       )
     )
 
-    const { result } = renderHook(() => useChat('test-token'))
+    const { result } = renderHook(() => useCoachingSession('test-token'))
 
     await act(async () => {
       await result.current.sendMessage('Fail please')
@@ -160,19 +158,19 @@ describe('useChat', () => {
   })
 
   it('addMessage adds a user message', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     act(() => {
       result.current.addMessage('Manual message')
     })
 
-    expect(result.current.messages).toHaveLength(2)
-    expect(result.current.messages[1].role).toBe('user')
-    expect(result.current.messages[1].content).toBe('Manual message')
+    expect(result.current.messages).toHaveLength(1)
+    expect(result.current.messages[0].role).toBe('user')
+    expect(result.current.messages[0].content).toBe('Manual message')
   })
 
   it('addMessage with attachment includes attachment data', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     act(() => {
       result.current.addMessage('Here is my file', {
@@ -188,7 +186,7 @@ describe('useChat', () => {
   })
 
   it('startPresentation transitions to present stage', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     act(() => {
       result.current.startPresentation({
@@ -207,7 +205,7 @@ describe('useChat', () => {
   })
 
   it('finishPresentation transitions to followup stage', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     act(() => {
       result.current.startPresentation({ topic: 'Test', audience: 'VCs', goal: 'Fund' })
@@ -221,7 +219,7 @@ describe('useChat', () => {
   })
 
   it('resetConversation restores initial state', async () => {
-    const { result } = renderHook(() => useChat('test-token'))
+    const { result } = renderHook(() => useCoachingSession('test-token'))
 
     // Modify some state first
     act(() => {
@@ -230,7 +228,7 @@ describe('useChat', () => {
       result.current.setSlideContext('slide data')
     })
 
-    expect(result.current.messages.length).toBeGreaterThan(1)
+    expect(result.current.messages.length).toBeGreaterThan(0)
     expect(result.current.stage).toBe('present')
     expect(result.current.slideContext).toBe('slide data')
 
@@ -238,8 +236,7 @@ describe('useChat', () => {
       result.current.resetConversation()
     })
 
-    expect(result.current.messages).toHaveLength(1)
-    expect(result.current.messages[0].role).toBe('assistant')
+    expect(result.current.messages).toHaveLength(0)
     expect(result.current.stage).toBe('define')
     expect(result.current.slideContext).toBeNull()
     expect(result.current.isStreaming).toBe(false)
@@ -251,7 +248,7 @@ describe('useChat', () => {
       new Response(JSON.stringify({ error: 'boom' }), { status: 500 })
     )
 
-    const { result } = renderHook(() => useChat('test-token'))
+    const { result } = renderHook(() => useCoachingSession('test-token'))
 
     await act(async () => {
       await result.current.sendMessage('trigger error')
@@ -267,7 +264,7 @@ describe('useChat', () => {
   })
 
   it('appendPulseLabels accumulates audience pulse history', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     act(() => {
       result.current.appendPulseLabels([
@@ -289,7 +286,7 @@ describe('useChat', () => {
   })
 
   it('setSlideContext updates slideContext', () => {
-    const { result } = renderHook(() => useChat())
+    const { result } = renderHook(() => useCoachingSession())
 
     act(() => {
       result.current.setSlideContext('Deck: Q4 Strategy\nRating: 75/100')

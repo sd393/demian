@@ -10,16 +10,14 @@ import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
 import { buildAuthHeaders } from "@/lib/api-utils"
 import { saveSession, updateSessionScores, type SessionScores, type SessionScoresV2 } from "@/lib/sessions"
-import { useChat, type Attachment } from "@/hooks/use-chat"
+import { useCoachingSession } from "@/hooks/use-coaching-session"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
 import { useContextFile } from "@/hooks/use-context-file"
 import { formatSlideContextForChat } from "@/lib/format-utils"
-import { FOLLOW_UPS_EARLY, FOLLOW_UPS_LATER, FOLLOW_UPS_DEFINE, FOLLOW_UPS_PRESENT, FOLLOW_UPS_CHAT } from "@/lib/constants"
 import { isValidFaceEmotion, type FaceState, type FaceEmotion } from "@/components/audience-face"
 import type { SetupContext } from "@/lib/coaching-stages"
 import { SetupWizard } from "@/components/setup-wizard"
-import { ChatView } from "@/components/chat-view"
 import { PresentationOverlay } from "@/components/presentation-overlay"
 
 const SlidePanel = dynamic(() => import("@/components/slide-panel").then(m => ({ default: m.SlidePanel })))
@@ -63,10 +61,9 @@ const LABELS_DEFAULT = [
 
 interface CoachingInterfaceProps {
   authToken?: string | null
-  onChatStart?: () => void
 }
 
-export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceProps) {
+export function CoachingInterface({ authToken }: CoachingInterfaceProps) {
   const router = useRouter()
 
   const {
@@ -76,7 +73,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     audiencePulseHistory, appendPulseLabels,
     sendMessage, uploadFile, addMessage, setSlideContext, clearError,
     startPresentation, finishPresentation, startResearchEarly,
-  } = useChat(authToken)
+  } = useCoachingSession(authToken)
 
   const { user } = useAuth()
   const recorder = useRecorder()
@@ -90,9 +87,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   const sessionSaveTriggered = useRef(false)
   const presentationCommittedRef = useRef(false)
   const pendingUploadRef = useRef(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const recordingInputRef = useRef<HTMLInputElement>(null)
-  const pdfInputRef = useRef<HTMLInputElement>(null)
 
   // Saved setup context — persists after SetupWizard unmounts
   const savedSetupRef = useRef<{ context: SetupContext | null; message: string | null }>({ context: null, message: null })
@@ -301,9 +296,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   /* ── Derived state ── */
 
   const isBusy = useMemo(() => isCompressing || isTranscribing || isResearching || isStreaming, [isCompressing, isTranscribing, isResearching, isStreaming])
-  const isInputDisabled = useMemo(() => isBusy || slideReview.isAnalyzing || recorder.isRecording, [isBusy, slideReview.isAnalyzing, recorder.isRecording])
-  const isEmptyState = messages.length === 1 && messages[0].role === "assistant"
-  const chatMode = stage === "present" && !presentationMode
+  const isEmptyState = messages.length === 0
 
   const faceState: FaceState = recorder.isRecording ? "listening"
     : isProcessingHeld ? "thinking"
@@ -330,36 +323,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
     thinkingLabelRef.current = { key: thinkingPhaseKey, label: pool[Math.floor(Math.random() * pool.length)] }
   }
   const thinkingLabel = thinkingLabelRef.current.label || "Thinking..."
-
-  const exchangeCount = messages.filter((m) => m.role === "user").length
-  const lastMessage = messages[messages.length - 1]
-  const showFollowUps = !isBusy && !isEmptyState && lastMessage?.role === "assistant" && (lastMessage.content?.length ?? 0) > 0 && stage !== 'feedback'
-
-  const researchCardAnchorId = messages.find((m) => m.role === "user")?.id ?? null
-
-  const followUps = useMemo(() =>
-    stage === 'define' ? FOLLOW_UPS_DEFINE
-    : chatMode ? FOLLOW_UPS_CHAT
-    : stage === 'present' ? FOLLOW_UPS_PRESENT
-    : stage === 'followup' ? FOLLOW_UPS_LATER
-    : exchangeCount <= 1 ? FOLLOW_UPS_EARLY
-    : FOLLOW_UPS_LATER
-  , [stage, chatMode, exchangeCount])
-
-  // Track the first feedback message ID for special visual treatment
-  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
-  const prevStageRef = useRef(stage)
-  useEffect(() => {
-    if (prevStageRef.current !== 'feedback' && stage === 'feedback') {
-      const lastMsg = messages[messages.length - 1]
-      if (lastMsg?.role === 'assistant') setFeedbackMessageId(lastMsg.id)
-    }
-    if (stage === 'feedback' && !feedbackMessageId) {
-      const lastMsg = messages[messages.length - 1]
-      if (lastMsg?.role === 'assistant' && lastMsg.content === '') setFeedbackMessageId(lastMsg.id)
-    }
-    prevStageRef.current = stage
-  }, [stage, messages, feedbackMessageId])
 
   // Audience pulse label + emotion for presentation overlay
   const currentPulse = pulseLabels[pulseIndex] ?? null
@@ -473,7 +436,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
 
   /* ── Effects ── */
 
-  useEffect(() => { if (!isEmptyState) onChatStart?.() }, [isEmptyState, onChatStart])
   useEffect(() => { if (error) { toast.error(error); clearError() } }, [error, clearError])
   useEffect(() => { if (slideReview.error) toast.error(slideReview.error) }, [slideReview.error])
 
@@ -498,21 +460,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
 
   /* ── Handlers ── */
 
-  function handleSendOrTransition(text: string) {
-    if (text === "__START_PRESENT__") { setPresentationMode(true); return }
-    if (text === "__START_UPLOAD_RECORDING__") { fileInputRef.current?.click(); return }
-    if (text === "__START_UPLOAD_SLIDES__") { pdfInputRef.current?.click(); return }
-    if (text === "__FINISH_PRESENTING__") { stopSpeaking(); setPresentationMode(false); finishPresentation(); return }
-    if (text === "__UPLOAD_ANOTHER__") { fileInputRef.current?.click(); return }
-    sendMessage(text)
-  }
-
-  function handlePdfAnalysis(file: File) {
-    const attachment: Attachment = { name: file.name, type: file.type || "application/pdf", size: file.size }
-    const messageId = addMessage("", attachment)
-    slideReview.uploadAndAnalyze(file, undefined, messageId)
-  }
-
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) { pendingUploadRef.current = false; return }
@@ -524,21 +471,8 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       setNavigatingToFeedback(true)
     }
 
-    const name = file.name.toLowerCase()
-    const isSlideFile = file.type === "application/pdf"
-      || file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-      || name.endsWith(".pdf")
-      || name.endsWith(".pptx")
-    isSlideFile ? handlePdfAnalysis(file) : uploadFile(file)
-    if (fileInputRef.current) fileInputRef.current.value = ""
+    uploadFile(file)
     if (recordingInputRef.current) recordingInputRef.current.value = ""
-  }
-
-  function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    handlePdfAnalysis(file)
-    if (pdfInputRef.current) pdfInputRef.current.value = ""
   }
 
   function commitPresentation() {
@@ -575,7 +509,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
   }
 
   function handleModeSelectFromWizard(
-    mode: "present" | "upload-recording" | "just-chat",
+    mode: "present" | "upload-recording",
     setupCtx: SetupContext | null,
     contextMsg: string | null
   ) {
@@ -603,10 +537,6 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
       recordingInputRef.current?.click()
       return
     }
-
-    // just-chat
-    if (setupCtx) startPresentation(setupCtx)
-    sendMessage(contextMsg ?? "Hey, I'm getting ready for a presentation.")
   }
 
   function handlePresentationSlideUpload(file: File) {
@@ -650,32 +580,7 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
               onContextFileUpload={contextFileHook.uploadContextFile}
               onContextFileRemove={contextFileHook.removeContextFile}
             />
-          ) : (
-            <ChatView
-              messages={messages}
-              stage={stage}
-              chatMode={chatMode}
-              feedbackMessageId={feedbackMessageId}
-              researchCardAnchorId={researchCardAnchorId}
-              researchMeta={researchMeta}
-              isResearching={isResearching}
-              isCompressing={isCompressing}
-              isTranscribing={isTranscribing}
-              isStreaming={isStreaming}
-              isBusy={isBusy}
-              isInputDisabled={isInputDisabled}
-              showFollowUps={showFollowUps}
-              followUps={followUps}
-              recorder={recorder}
-              slideReview={slideReview}
-              onSend={handleSendOrTransition}
-              onStartRecording={handleStartRecording}
-              onStopRecording={handleStopRecording}
-              onFileClick={() => (chatMode ? pdfInputRef : fileInputRef).current?.click()}
-              onPdfClick={() => pdfInputRef.current?.click()}
-              onPresentationModeEnter={() => setPresentationMode(true)}
-            />
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
 
@@ -714,10 +619,8 @@ export function CoachingInterface({ authToken, onChatStart }: CoachingInterfaceP
         )}
       </AnimatePresence>
 
-      {/* Hidden file inputs */}
-      <input ref={fileInputRef} type="file" accept="video/*,audio/*,.pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handleFileUpload} className="hidden" aria-label="Upload video, audio, or slides" />
+      {/* Hidden file input */}
       <input ref={recordingInputRef} type="file" accept="video/*,audio/*" onChange={handleFileUpload} className="hidden" aria-label="Upload video or audio recording" />
-      <input ref={pdfInputRef} type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handlePdfUpload} className="hidden" aria-label="Upload slides" />
 
       {/* Transition overlay */}
       {navigatingToFeedback && (
