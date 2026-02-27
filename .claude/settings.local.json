@@ -27,7 +27,10 @@
       "Bash(grep:*)",
       "Bash(pnpm vitest:*)",
       "Bash(pnpm dlx:*)",
-      "Bash(pnpm add:*)"
+      "Bash(pnpm add:*)",
+      "Bash(git rm:*)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)"
     ]
   }
 }
