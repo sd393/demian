@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { buildAuthHeaders } from "@/lib/api-utils"
 import { saveSession, updateSessionScores, type SessionScores, type SessionScoresV2 } from "@/lib/sessions"
 import { useCoachingSession } from "@/hooks/use-coaching-session"
+import { formatAnalyticsSummary } from "@/lib/format-delivery-analytics"
 import { useRecorder } from "@/hooks/use-recorder"
 import { useSlideReview } from "@/hooks/use-slide-review"
 import { useContextFile } from "@/hooks/use-context-file"
@@ -67,7 +68,7 @@ export function CoachingInterface({ authToken }: CoachingInterfaceProps) {
   const router = useRouter()
 
   const {
-    messages, researchMeta, researchSearchTerms, researchContext, isCompressing, isTranscribing, isResearching, isStreaming,
+    messages, researchMeta, researchSearchTerms, researchContext, deliveryAnalytics, isCompressing, isTranscribing, isResearching, isStreaming,
     error,
     stage, transcript, setupContext: chatSetupContext, slideContext,
     audiencePulseHistory, appendPulseLabels,
@@ -387,6 +388,7 @@ export function CoachingInterface({ authToken }: CoachingInterfaceProps) {
       audiencePulse: audiencePulseHistory,
       slideReview: slideReviewPayload,
       researchContext: researchContext ?? null,
+      deliveryAnalytics: deliveryAnalytics ?? null,
       scores: null as SessionScores | SessionScoresV2 | null,
     }
 
@@ -415,6 +417,7 @@ export function CoachingInterface({ authToken }: CoachingInterfaceProps) {
           messages: strippedMessages,
           researchContext: researchContext ?? undefined,
           slideContext: slideContext ?? undefined,
+          deliveryAnalyticsSummary: deliveryAnalytics ? formatAnalyticsSummary(deliveryAnalytics) : undefined,
         }),
       })
         .then(async (res) => {
