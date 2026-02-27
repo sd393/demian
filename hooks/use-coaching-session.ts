@@ -3,17 +3,17 @@
 import { useState, useRef, useCallback } from 'react'
 import { buildAuthHeaders } from '@/lib/api-utils'
 import { parseSSEStream, createRAFBatcher } from '@/lib/sse-utils'
-import { useChatMessages, generateId } from '@/hooks/use-chat-messages'
+import { useMessageContext, generateId } from '@/hooks/use-message-context'
 import { useTranscription } from '@/hooks/use-transcription'
 import { useResearchPipeline } from '@/hooks/use-research-pipeline'
 import { usePresentationStage } from '@/hooks/use-presentation-stage'
 import type { CoachingStage } from '@/lib/coaching-stages'
 
 // Re-export types so existing imports keep working
-export type { Attachment, Message } from '@/hooks/use-chat-messages'
+export type { Attachment, Message } from '@/hooks/use-message-context'
 export type { ResearchMeta } from '@/hooks/use-research-pipeline'
 
-export function useChat(authToken?: string | null) {
+export function useCoachingSession(authToken?: string | null) {
   const [slideContext, setSlideContext] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +26,7 @@ export function useChat(authToken?: string | null) {
   // Sub-hooks
   const {
     messages, setMessages, messagesRef, addMessage, resetMessages,
-  } = useChatMessages()
+  } = useMessageContext()
 
   const stageHook = usePresentationStage()
   const {
@@ -55,7 +55,7 @@ export function useChat(authToken?: string | null) {
 
   const streamChatResponse = useCallback(
     async (
-      currentMessages: ReturnType<typeof useChatMessages>['messages'],
+      currentMessages: ReturnType<typeof useMessageContext>['messages'],
       currentTranscript: string | null,
       overrides?: { stage?: CoachingStage }
     ) => {

@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { buildAuthHeaders } from '@/lib/api-utils'
 import { parseSSEStream } from '@/lib/sse-utils'
-import type { Message } from '@/hooks/use-chat-messages'
+import type { Message } from '@/hooks/use-message-context'
 import type { SetupContext } from '@/lib/coaching-stages'
 
 export interface ResearchMeta {

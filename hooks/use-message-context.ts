@@ -19,16 +19,9 @@ export function generateId(): string {
   return Math.random().toString(36).substring(2, 11)
 }
 
-export const INITIAL_MESSAGE: Message = {
-  id: generateId(),
-  role: 'assistant',
-  content:
-    "Hey — I'm Vera. I'll be your audience. Whenever you're ready, go ahead.",
-}
-
-export function useChatMessages() {
-  const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE])
-  const messagesRef = useRef<Message[]>([INITIAL_MESSAGE])
+export function useMessageContext() {
+  const [messages, setMessages] = useState<Message[]>([])
+  const messagesRef = useRef<Message[]>([])
   messagesRef.current = messages
 
   const addMessage = useCallback(
@@ -49,8 +42,8 @@ export function useChatMessages() {
   )
 
   const resetMessages = useCallback(() => {
-    setMessages([INITIAL_MESSAGE])
-    messagesRef.current = [INITIAL_MESSAGE]
+    setMessages([])
+    messagesRef.current = []
   }, [])
 
   return {

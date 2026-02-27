@@ -3,7 +3,7 @@
 import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 import { Search, ChevronDown } from "lucide-react"
-import type { ResearchMeta } from "@/hooks/use-chat"
+import type { ResearchMeta } from "@/hooks/use-coaching-session"
 
 export function ResearchCard({ meta }: { meta: ResearchMeta }) {
   const [isOpen, setIsOpen] = useState(false)
