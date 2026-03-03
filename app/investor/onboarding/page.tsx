@@ -10,8 +10,10 @@ import {
   Linkedin,
   Target,
   X,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
+import { submitInvestorProfile } from "@/app/investor/actions"
 
 const steps = [
   { label: "Profile" },
@@ -27,6 +29,8 @@ const geoOptions = ["US - West Coast", "US - East Coast", "US - Midwest", "Europ
 
 export default function InvestorOnboarding() {
   const [currentStep, setCurrentStep] = useState(0)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
   const [form, setForm] = useState({
     investorName: "",
     firmName: "",
@@ -58,6 +62,46 @@ export default function InvestorOnboarding() {
     if (currentStep === 0) return form.investorName && form.firmName
     if (currentStep === 2) return form.sectors.length > 0
     return true
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setError("")
+
+    try {
+      const formData = new FormData()
+      formData.set("investorName", form.investorName)
+      formData.set("firmName", form.firmName)
+      formData.set("role", form.role)
+      formData.set("linkedinUrl", form.linkedinUrl)
+      formData.set("sectors", JSON.stringify(form.sectors))
+      formData.set("stages", JSON.stringify(form.stages))
+      formData.set("checkSizeMin", form.checkSizeMin)
+      formData.set("checkSizeMax", form.checkSizeMax)
+      formData.set("geography", JSON.stringify(form.geography))
+      formData.set("thesis", form.thesis)
+      formData.set("notInterested", form.notInterested)
+
+      const result = await submitInvestorProfile(formData)
+      if (result?.error) {
+        setError(result.error)
+        setSubmitting(false)
+        return
+      }
+      setCurrentStep(4)
+    } catch {
+      // redirect() throws NEXT_REDIRECT — expected
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function handleNext() {
+    if (currentStep === 3) {
+      handleSubmit()
+    } else {
+      setCurrentStep(Math.min(4, currentStep + 1))
+    }
   }
 
   return (
@@ -269,6 +313,12 @@ export default function InvestorOnboarding() {
                 <ReviewRow label="Thesis" value={form.thesis || "Not provided"} />
                 <ReviewRow label="Exclusions" value={form.notInterested || "None"} />
               </div>
+
+              {error && (
+                <div className="mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {error}
+                </div>
+              )}
             </div>
           )}
 
@@ -284,7 +334,7 @@ export default function InvestorOnboarding() {
               </p>
               <div className="mt-4 flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
                 <Target className="h-4 w-4" />
-                12 startups matched to your thesis
+                Matching startups to your thesis...
               </div>
               <Link
                 href="/investor/dashboard"
@@ -308,12 +358,21 @@ export default function InvestorOnboarding() {
                 Back
               </button>
               <button
-                onClick={() => setCurrentStep(Math.min(4, currentStep + 1))}
-                disabled={!canNext()}
+                onClick={handleNext}
+                disabled={!canNext() || submitting}
                 className="flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {currentStep === 3 ? "Create Profile" : "Continue"}
-                <ArrowRight className="h-4 w-4" />
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : currentStep === 3 ? (
+                  "Create Profile"
+                ) : (
+                  "Continue"
+                )}
+                {!submitting && <ArrowRight className="h-4 w-4" />}
               </button>
             </div>
           )}

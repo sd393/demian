@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils"
 import { ScoreBadge } from "./score-badge"
 import { Bookmark, ExternalLink, GraduationCap, MapPin } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { useState } from "react"
 
 export interface StartupCardData {
   id: string
@@ -25,10 +24,16 @@ export interface StartupCardData {
 interface StartupCardProps {
   startup: StartupCardData
   className?: string
+  saved?: boolean
+  onToggleSave?: (id: string) => void
 }
 
-export function StartupCard({ startup, className }: StartupCardProps) {
-  const [saved, setSaved] = useState(false)
+export function StartupCard({ startup, className, saved: savedProp, onToggleSave }: StartupCardProps) {
+  const isSaved = savedProp ?? false
+
+  function handleSave() {
+    onToggleSave?.(startup.id)
+  }
 
   return (
     <div
@@ -58,10 +63,12 @@ export function StartupCard({ startup, className }: StartupCardProps) {
                 <GraduationCap className="h-3 w-3" />
                 {startup.school}
               </span>
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3 w-3" />
-                {startup.location}
-              </span>
+              {startup.location && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {startup.location}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -93,16 +100,16 @@ export function StartupCard({ startup, className }: StartupCardProps) {
             View Details
           </Link>
           <button
-            onClick={() => setSaved(!saved)}
+            onClick={handleSave}
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-              saved
+              isSaved
                 ? "border-primary/30 bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:border-primary/30 hover:text-primary"
             )}
-            aria-label={saved ? "Unsave startup" : "Save startup"}
+            aria-label={isSaved ? "Unsave startup" : "Save startup"}
           >
-            <Bookmark className={cn("h-4 w-4", saved && "fill-current")} />
+            <Bookmark className={cn("h-4 w-4", isSaved && "fill-current")} />
           </button>
           <Link
             href={`/startup/${startup.id}`}

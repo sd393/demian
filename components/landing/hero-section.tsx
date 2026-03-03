@@ -24,14 +24,14 @@ export function HeroSection() {
             </p>
             <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row lg:justify-start">
               <Link
-                href="/founder/submit"
+                href="/auth/signup?role=founder"
                 className="group flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90"
               >
                 For Founders
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <Link
-                href="/investor/onboarding"
+                href="/auth/signup?role=investor"
                 className="flex items-center gap-2 rounded-xl border border-border bg-card px-6 py-3 text-sm font-semibold text-card-foreground transition-colors hover:bg-secondary"
               >
                 For Investors

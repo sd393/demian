@@ -3,20 +3,34 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Zap, Menu, X } from "lucide-react"
+import { Zap, Menu, X, LogOut } from "lucide-react"
 import { useState } from "react"
+import { useAuth } from "@/hooks/use-auth"
+import { signOut } from "@/app/auth/actions"
 
-const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/founder/dashboard", label: "Founder Dashboard" },
-  { href: "/investor/dashboard", label: "Investor Dashboard" },
+const publicLinks = [{ href: "/", label: "Home" }]
+
+const founderLinks = [
+  { href: "/founder/dashboard", label: "Dashboard" },
   { href: "/founder/submit", label: "Submit Pitch" },
-  { href: "/investor/onboarding", label: "Investor Onboarding" },
+]
+
+const investorLinks = [
+  { href: "/investor/dashboard", label: "Deal Flow" },
+  { href: "/investor/onboarding", label: "My Thesis" },
 ]
 
 export function Navbar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { user, role, loading } = useAuth()
+
+  const navLinks = [
+    ...publicLinks,
+    ...(role === "founder" ? founderLinks : []),
+    ...(role === "investor" ? investorLinks : []),
+    // Allow access to startup detail pages for everyone
+  ]
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
@@ -46,12 +60,34 @@ export function Navbar() {
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Link
-            href="/founder/submit"
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Get Started
-          </Link>
+          {loading ? (
+            <div className="h-9 w-20 animate-pulse rounded-xl bg-secondary" />
+          ) : user ? (
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-secondary"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </form>
+          ) : (
+            <>
+              <Link
+                href="/auth/login"
+                className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-secondary"
+              >
+                Log In
+              </Link>
+              <Link
+                href="/auth/signup"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
 
         <button
@@ -81,13 +117,37 @@ export function Navbar() {
                 {link.label}
               </Link>
             ))}
-            <Link
-              href="/founder/submit"
-              onClick={() => setMobileOpen(false)}
-              className="mt-2 rounded-xl bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground"
-            >
-              Get Started
-            </Link>
+            {!loading && (
+              user ? (
+                <form action={signOut}>
+                  <button
+                    type="submit"
+                    onClick={() => setMobileOpen(false)}
+                    className="mt-2 flex w-full items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign Out
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <Link
+                    href="/auth/login"
+                    onClick={() => setMobileOpen(false)}
+                    className="mt-2 rounded-xl border border-border bg-card px-4 py-2 text-center text-sm font-medium text-card-foreground"
+                  >
+                    Log In
+                  </Link>
+                  <Link
+                    href="/auth/signup"
+                    onClick={() => setMobileOpen(false)}
+                    className="rounded-xl bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground"
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              )
+            )}
           </div>
         </div>
       )}

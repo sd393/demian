@@ -11,8 +11,10 @@ import {
   Sparkles,
   FileText,
   Rocket,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
+import { createSignedUploadUrl, submitPitch } from "@/app/founder/actions"
 
 const steps = [
   { label: "Basics" },
@@ -24,6 +26,8 @@ const steps = [
 
 export default function FounderSubmitPage() {
   const [currentStep, setCurrentStep] = useState(0)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
   const [form, setForm] = useState({
     startupName: "",
     founderName: "",
@@ -49,6 +53,81 @@ export default function FounderSubmitPage() {
     if (currentStep === 1) return form.deckFile
     if (currentStep === 2) return form.oneLiner && form.problem && form.solution
     return true
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setError("")
+
+    try {
+      let deckPath: string | null = null
+
+      // Step 1: If there's a file, get a signed upload URL and upload directly
+      if (form.deckFile) {
+        const uploadResult = await createSignedUploadUrl(
+          form.deckFile.name,
+          form.deckFile.type
+        )
+
+        if ("error" in uploadResult && uploadResult.error) {
+          setError(uploadResult.error)
+          setSubmitting(false)
+          return
+        }
+
+        // Upload the file directly to Supabase Storage (bypasses Vercel 4.5MB limit)
+        const uploadResponse = await fetch(uploadResult.signedUrl!, {
+          method: "PUT",
+          body: form.deckFile,
+          headers: { "Content-Type": form.deckFile.type },
+        })
+
+        if (!uploadResponse.ok) {
+          setError("Failed to upload file. Please try again.")
+          setSubmitting(false)
+          return
+        }
+
+        deckPath = uploadResult.deckPath!
+      }
+
+      // Step 2: Submit the text metadata via server action
+      const formData = new FormData()
+      formData.set("startupName", form.startupName)
+      formData.set("founderName", form.founderName)
+      formData.set("school", form.school)
+      formData.set("email", form.email)
+      formData.set("sector", form.sector)
+      formData.set("stage", form.stage)
+      formData.set("website", form.website)
+      formData.set("oneLiner", form.oneLiner)
+      formData.set("problem", form.problem)
+      formData.set("solution", form.solution)
+      formData.set("traction", form.traction)
+      formData.set("fundraising", form.fundraising)
+      if (deckPath) formData.set("deckPath", deckPath)
+
+      const result = await submitPitch(formData)
+      if (result?.error) {
+        setError(result.error)
+        setSubmitting(false)
+        return
+      }
+      // On success, submitPitch() calls redirect() — we move to step 4 as fallback
+      setCurrentStep(4)
+    } catch {
+      // redirect() throws a NEXT_REDIRECT error — that's expected
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function handleNext() {
+    if (currentStep === 3) {
+      handleSubmit()
+    } else {
+      setCurrentStep(Math.min(4, currentStep + 1))
+    }
   }
 
   return (
@@ -276,6 +355,12 @@ export default function FounderSubmitPage() {
                 <ReviewRow label="Traction" value={form.traction || "Not provided"} />
                 <ReviewRow label="Fundraising" value={form.fundraising || "Not specified"} />
               </div>
+
+              {error && (
+                <div className="mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {error}
+                </div>
+              )}
             </div>
           )}
 
@@ -315,12 +400,21 @@ export default function FounderSubmitPage() {
                 Back
               </button>
               <button
-                onClick={() => setCurrentStep(Math.min(4, currentStep + 1))}
-                disabled={!canNext()}
+                onClick={handleNext}
+                disabled={!canNext() || submitting}
                 className="flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {currentStep === 3 ? "Submit Pitch" : "Continue"}
-                <ArrowRight className="h-4 w-4" />
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : currentStep === 3 ? (
+                  "Submit Pitch"
+                ) : (
+                  "Continue"
+                )}
+                {!submitting && <ArrowRight className="h-4 w-4" />}
               </button>
             </div>
           )}
