@@ -52,12 +52,8 @@ export async function signup(formData: FormData) {
     return { error: "Failed to configure account. Please try again." }
   }
 
-  // Redirect based on role
-  if (role === "founder") {
-    redirect("/founder/submit")
-  } else {
-    redirect("/investor/onboarding")
-  }
+  // Return success — user needs to verify their email before they can log in
+  return { success: true }
 }
 
 export async function signUpWithGoogle(role: string) {

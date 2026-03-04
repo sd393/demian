@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -61,7 +63,7 @@ export function Navbar() {
             <form action={signOut}>
               <button
                 type="submit"
-                className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-secondary"
+                className="flex items-center gap-2 rounded-xl bg-destructive/10 px-4 py-2 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20"
               >
                 <LogOut className="h-4 w-4" />
                 Sign Out
@@ -118,7 +120,7 @@ export function Navbar() {
                   <button
                     type="submit"
                     onClick={() => setMobileOpen(false)}
-                    className="mt-2 flex w-full items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground"
+                    className="mt-2 flex w-full items-center gap-2 rounded-xl bg-destructive/10 px-4 py-2 text-sm font-semibold text-destructive"
                   >
                     <LogOut className="h-4 w-4" />
                     Sign Out

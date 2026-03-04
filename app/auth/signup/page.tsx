@@ -15,6 +15,7 @@ function SignupForm() {
   const [error, setError] = useState(searchParams.get("error") ?? "")
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -28,7 +29,31 @@ function SignupForm() {
     if (result?.error) {
       setError(result.error)
       setLoading(false)
+    } else if (result?.success) {
+      setEmailSent(true)
     }
+  }
+
+  if (emailSent) {
+    return (
+      <div className="mt-6 flex w-full flex-col items-center text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+          <svg className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+          </svg>
+        </div>
+        <h2 className="mt-4 text-lg font-semibold text-foreground">Check your email</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          We sent a verification link to your email. Click the link to activate your account, then log in.
+        </p>
+        <Link
+          href="/auth/login"
+          className="mt-6 w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          Go to Log In
+        </Link>
+      </div>
+    )
   }
 
   return (
