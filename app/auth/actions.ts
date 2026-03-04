@@ -31,6 +31,12 @@ export async function signup(formData: FormData) {
     return { error: "Signup failed. Please try again." }
   }
 
+  // Supabase returns a user with empty identities when the email already exists
+  // (instead of an error, to prevent email enumeration)
+  if (authData.user.identities?.length === 0) {
+    return { error: "An account with this email already exists. Please log in instead." }
+  }
+
   const admin = createAdminClient()
 
   // 2. Insert the profile row using the admin client (bypasses RLS)
