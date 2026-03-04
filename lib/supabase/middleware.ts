@@ -32,6 +32,11 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
+  // Always let the OAuth callback through — it handles its own redirects
+  if (pathname === "/auth/callback") {
+    return supabaseResponse
+  }
+
   // Public routes that don't require auth
   const publicRoutes = ["/", "/auth/login", "/auth/signup"]
   const isPublicRoute = publicRoutes.some(
@@ -45,19 +50,33 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  const role = user?.app_metadata?.role as string | undefined
+
   // If authenticated and visiting auth pages → redirect based on role
   if (user && pathname.startsWith("/auth/")) {
-    const role = user.app_metadata?.role as string | undefined
+    // Allow /auth/choose-role for authenticated users who have no role yet
+    if (pathname === "/auth/choose-role" && !role) {
+      return supabaseResponse
+    }
+
+    // All other auth pages: redirect to dashboard if they have a role
+    if (role) {
+      const url = request.nextUrl.clone()
+      url.pathname =
+        role === "investor" ? "/investor/dashboard" : "/founder/dashboard"
+      return NextResponse.redirect(url)
+    }
+  }
+
+  // Authenticated user with no role trying to access protected routes → choose role first
+  if (user && !role && !isPublicRoute) {
     const url = request.nextUrl.clone()
-    url.pathname =
-      role === "investor" ? "/investor/dashboard" : "/founder/dashboard"
+    url.pathname = "/auth/choose-role"
     return NextResponse.redirect(url)
   }
 
   // Role-based route protection (UX only — RLS is the real security boundary)
-  if (user) {
-    const role = user.app_metadata?.role as string | undefined
-
+  if (user && role) {
     if (pathname.startsWith("/founder") && role === "investor") {
       const url = request.nextUrl.clone()
       url.pathname = "/investor/dashboard"
