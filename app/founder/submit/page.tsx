@@ -135,7 +135,7 @@ export default function FounderSubmitPage() {
       <Navbar />
       <main className="mx-auto max-w-2xl px-6 py-12">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-foreground">Submit Your Pitch</h1>
+          <h1 className="font-serif text-2xl font-bold text-foreground">Submit Your Pitch</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Get AI-powered feedback and connect with investors
           </p>
@@ -370,7 +370,7 @@ export default function FounderSubmitPage() {
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-success/10 text-success">
                 <Rocket className="h-8 w-8" />
               </div>
-              <h2 className="mt-6 text-2xl font-bold text-card-foreground">Pitch Submitted!</h2>
+              <h2 className="mt-6 font-serif text-2xl font-bold text-card-foreground">Pitch Submitted!</h2>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
                 {"Your pitch is now being analyzed by Demian's AI. You'll receive your score and feedback within minutes."}
               </p>

@@ -1,12 +1,12 @@
 import Link from "next/link"
-import { ArrowRight, Zap } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 
 export function CtaFooter() {
   return (
-    <section className="border-t border-border bg-card/30 py-24">
+    <section className="border-t border-border bg-card/30 pt-24 pb-10">
       <div className="mx-auto max-w-7xl px-6 text-center">
         <div className="mx-auto max-w-2xl">
-          <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+          <h2 className="font-serif text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Ready to get discovered?
           </h2>
           <p className="mt-4 text-pretty text-lg text-muted-foreground">
@@ -33,12 +33,7 @@ export function CtaFooter() {
       {/* Footer */}
       <div className="mx-auto mt-20 max-w-7xl border-t border-border px-6 pt-8">
         <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-              <Zap className="h-3.5 w-3.5 text-primary-foreground" />
-            </div>
-            <span className="text-sm font-bold text-foreground">Demian</span>
-          </div>
+          <span className="font-serif text-sm font-bold uppercase text-foreground">Demian</span>
           <p className="text-xs text-muted-foreground">
             2026 Demian, Inc. All rights reserved.
           </p>

@@ -17,7 +17,7 @@ export function DualValue() {
     <section className="border-y border-border bg-card/30 py-24">
       <div className="mx-auto max-w-7xl px-6">
         <div className="text-center">
-          <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+          <h2 className="font-serif text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Built for both sides of the table
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-pretty text-muted-foreground">

@@ -1,5 +1,3 @@
-"use client"
-
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -33,13 +31,10 @@ export function Navbar() {
   ]
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 bg-transparent backdrop-blur-sm">
       <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Zap className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <span className="text-lg font-bold tracking-tight text-foreground">Demian</span>
+        <Link href="/" className="flex items-center">
+          <span className="font-serif text-lg font-bold uppercase tracking-tight text-foreground">Demian</span>
         </Link>
 
         <div className="hidden items-center gap-1 md:flex">

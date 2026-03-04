@@ -109,7 +109,7 @@ export default function InvestorOnboarding() {
       <Navbar />
       <main className="mx-auto max-w-2xl px-6 py-12">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-foreground">Investor Onboarding</h1>
+          <h1 className="font-serif text-2xl font-bold text-foreground">Investor Onboarding</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Set up your profile to discover the best student founders
           </p>
@@ -328,7 +328,7 @@ export default function InvestorOnboarding() {
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-success/10 text-success">
                 <CheckCircle2 className="h-8 w-8" />
               </div>
-              <h2 className="mt-6 text-2xl font-bold text-card-foreground">Welcome to Demian!</h2>
+              <h2 className="mt-6 font-serif text-2xl font-bold text-card-foreground">Welcome to Demian!</h2>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
                 {"Your investor profile is live. We're already matching you with the best student founders based on your thesis."}
               </p>

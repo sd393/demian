@@ -44,11 +44,8 @@ export function DashboardSidebar({ links, open, onClose }: DashboardSidebarProps
         )}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-6">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <Zap className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-bold tracking-tight text-sidebar-foreground">Demian</span>
+          <Link href="/" className="flex items-center">
+            <span className="font-serif text-lg font-bold uppercase tracking-tight text-sidebar-foreground">Demian</span>
           </Link>
           <button
             onClick={onClose}

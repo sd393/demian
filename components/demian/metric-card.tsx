@@ -21,7 +21,7 @@ export function MetricCard({ title, value, subtitle, icon: Icon, trend, classNam
       <div className="flex items-start justify-between">
         <div className="flex flex-col gap-1">
           <span className="text-sm text-muted-foreground">{title}</span>
-          <span className="text-3xl font-bold tracking-tight text-card-foreground">{value}</span>
+          <span className="font-serif text-3xl font-bold tracking-tight text-card-foreground">{value}</span>
           {subtitle && (
             <span className="text-xs text-muted-foreground">{subtitle}</span>
           )}

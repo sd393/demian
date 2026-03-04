@@ -1,6 +1,5 @@
 import { Navbar } from "@/components/demian/navbar"
 import { HeroSection } from "@/components/landing/hero-section"
-import { SocialProof } from "@/components/landing/social-proof"
 import { HowItWorks } from "@/components/landing/how-it-works"
 import { DualValue } from "@/components/landing/dual-value"
 import { Features } from "@/components/landing/features"
@@ -12,7 +11,6 @@ export default function LandingPage() {
       <Navbar />
       <main>
         <HeroSection />
-        <SocialProof />
         <HowItWorks />
         <DualValue />
         <Features />

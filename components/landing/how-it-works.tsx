@@ -6,21 +6,21 @@ const steps = [
     step: "01",
     title: "Founders upload their pitch",
     description:
-      "Submit your pitch deck, startup details, and traction metrics. Our platform makes it easy to showcase your vision.",
+      "Submit your pitch deck, startup details, and traction metrics.",
   },
   {
     icon: Brain,
     step: "02",
     title: "Demian analyzes and scores it",
     description:
-      "Our AI evaluates pitch quality, market fit, team strength, and traction against thousands of data points.",
+      "AI evaluates pitch quality, market fit, team strength, and traction.",
   },
   {
     icon: Rocket,
     step: "03",
-    title: "Investors discover the best-fit opportunities",
+    title: "Investors discover the best fits",
     description:
-      "VCs browse ranked, thesis-matched deal flow. The strongest founders surface to the top automatically.",
+      "VCs browse ranked, thesis-matched deal flow. The strongest founders surface automatically.",
   },
 ]
 
@@ -30,27 +30,21 @@ export function HowItWorks() {
       <div className="mx-auto max-w-7xl px-6">
         <div className="text-center">
           <span className="text-sm font-medium text-primary">How it Works</span>
-          <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+          <h2 className="mt-3 font-serif text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Three steps to better deal flow
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-pretty text-muted-foreground">
-            Whether you are a founder looking for funding or an investor seeking the next big thing, Demian streamlines the connection.
-          </p>
         </div>
 
-        <div className="mt-16 grid gap-8 md:grid-cols-3">
+        <div className="relative mt-16 grid gap-12 md:grid-cols-3">
+          {/* Connecting line */}
+          <div className="pointer-events-none absolute top-6 right-0 left-0 hidden h-px bg-border md:block" />
+
           {steps.map((s) => (
-            <div
-              key={s.step}
-              className="group relative rounded-2xl border border-border bg-card p-8 transition-colors hover:border-primary/30"
-            >
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                  <s.icon className="h-5 w-5" />
-                </div>
-                <span className="font-mono text-sm text-muted-foreground">{s.step}</span>
+            <div key={s.step} className="relative text-center">
+              <div className="relative z-10 mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card font-mono text-sm font-bold text-primary">
+                {s.step}
               </div>
-              <h3 className="mt-6 text-lg font-semibold text-card-foreground">{s.title}</h3>
+              <h3 className="mt-5 text-base font-semibold text-card-foreground">{s.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.description}</p>
             </div>
           ))}
